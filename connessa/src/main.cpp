@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <conio.h>
+#include <windows.h>
 
 // Some common typedefs that I tend to use for uniformity
 typedef char int8;
@@ -22,11 +23,15 @@ struct CPU
     uint8 x;
     uint8 y;
 
+    uint8 add; //Internal register ussed to hold temp values (See Research)
+
     // Values to abstract the internal magic of the 6502
     // TODO: Use these to handle proper read and write timings
     uint8 t; // Cycle count since starting the operation
     uint8 inst; // Currently executing instruction
     uint16 instAddr; // Address of current instruction, used for debugging
+    uint8 p1; // operands
+    uint8 p2;
 };
 
 struct PPU
@@ -82,12 +87,14 @@ uint8 cpuRead(uint16 address)
     {
         // map to the ppu register based on the last 3 bits
         // http://wiki.nesdev.com/w/index.php/PPU_registers
+        return 0;
     }
 
     if (address < 0x4020)
     {
         // map to the apu/io registers
         // http://wiki.nesdev.com/w/index.php/2A03
+        return 0;
     }
 
     // Cartridge space (logic depends on the mapper)
@@ -96,6 +103,7 @@ uint8 cpuRead(uint16 address)
     {
         // INVALID READ ON THIS MAPPER
         // TODO: Figure out a way to handle these kinds of errors, not sure what hardware would do
+        return 0;
     }
 
     if (address < 0xC000)
@@ -152,7 +160,7 @@ enum OpCode
     CLD,
     CLI,
     CLV,
-    CPM,
+    CMP,
     CPX,
     CPY,
     DEC,
@@ -164,7 +172,7 @@ enum OpCode
     INY,
     JMP,
     JSR,
-    LDS,
+    LDA,
     LDX,
     LDY,
     LSR,
@@ -173,6 +181,7 @@ enum OpCode
     PHA,
     PHP,
     PLA,
+    PLP,
     ROL,
     ROR,
     RTI,
@@ -190,6 +199,67 @@ enum OpCode
     TXA,
     TXS,
     TYA,
+    KILL, // Illegal opcodes
+};
+
+static const char* opCodeNames[] = {
+    "ADC",
+    "AND",
+    "ASL",
+    "BCC",
+    "BCS",
+    "BEQ",
+    "BIT",
+    "BMI",
+    "BNE",
+    "BPL",
+    "BRK",
+    "BVC",
+    "BVS",
+    "CLC",
+    "CLD",
+    "CLI",
+    "CLV",
+    "CMP",
+    "CPX",
+    "CPY",
+    "DEC",
+    "DEX",
+    "DEY",
+    "EOR",
+    "INC",
+    "INX",
+    "INY",
+    "JMP",
+    "JSR",
+    "LDA",
+    "LDX",
+    "LDY",
+    "LSR",
+    "NOP",
+    "ORA",
+    "PHA",
+    "PHP",
+    "PLA",
+    "PLP",
+    "ROL",
+    "ROR",
+    "RTI",
+    "RTS",
+    "SBC",
+    "SEC",
+    "SED",
+    "SEI",
+    "STA",
+    "STX",
+    "STY",
+    "TAX",
+    "TAY",
+    "TSX",
+    "TXA",
+    "TXS",
+    "TYA",
+    "KILL" // Illegal opcodes
 };
 
 enum AddressingMode
@@ -202,7 +272,7 @@ enum AddressingMode
     Implied,
     Indirect,
     IndirectX,
-    IndirectY,
+    IndirectY, // Very different mechanisms, but easier to keep straight this way
     Relative,
     ZeroPage,
     ZeroPageX,
@@ -211,21 +281,1071 @@ enum AddressingMode
 
 struct Operation
 {
-    OpCode code;
-    AddressingMode mode;
+    uint8 instruction;
+    OpCode opCode;
+    AddressingMode addressMode;
 };
 
 Operation operations[] = {
-    {BRK, Implied}
+    {0x00, BRK, Implied},
+    {0x01, ORA, IndirectX},
+    {0x02, KILL, Implied},
+    {0x03, KILL, Implied},
+    {0x04, KILL, Implied},
+    {0x05, ORA, ZeroPage},
+    {0x06, ASL, ZeroPage},
+    {0x07, KILL, Implied},
+    {0x08, PHP, Implied},
+    {0x09, ORA, Immediate},
+    {0x0A, ASL, Accumulator},
+    {0x0B, KILL, Implied},
+    {0x0C, KILL, Implied},
+    {0x0D, ORA, Absolute},
+    {0x0E, ASL, Absolute},
+    {0x0F, KILL, Implied},
+    {0x10, BPL, Relative},
+    {0x11, ORA, IndirectY},
+    {0x12, KILL, Implied},
+    {0x13, KILL, Implied},
+    {0x14, KILL, Implied},
+    {0x15, ORA, ZeroPageX},
+    {0x16, ASL, ZeroPageX},
+    {0x17, KILL, Implied},
+    {0x18, CLC, Implied},
+    {0x19, ORA, AbsoluteY},
+    {0x1A, KILL, Implied},
+    {0x1B, KILL, Implied},
+    {0x1C, KILL, Implied},
+    {0x1D, ORA, AbsoluteX},
+    {0x1E, ASL, AbsoluteX},
+    {0x1F, KILL, Implied},
+    {0x20, JSR, Absolute},
+    {0x21, AND, IndirectX},
+    {0x22, KILL, Implied},
+    {0x23, KILL, Implied},
+    {0x24, BIT, ZeroPage},
+    {0x25, AND, ZeroPage},
+    {0x26, ROL, ZeroPage},
+    {0x27, KILL, Implied},
+    {0x28, PLP, Implied},
+    {0x29, AND, Immediate},
+    {0x2A, ROL, Accumulator},
+    {0x2B, KILL, Implied},
+    {0x2C, BIT, Absolute},
+    {0x2D, AND, Absolute},
+    {0x2E, ROL, Absolute},
+    {0x2F, KILL, Implied},
+    {0x30, BMI, Relative},
+    {0x31, AND, IndirectY},
+    {0x32, KILL, Implied},
+    {0x33, KILL, Implied},
+    {0x34, KILL, Implied},
+    {0x35, AND, ZeroPageX},
+    {0x36, ROL, ZeroPageX},
+    {0x37, KILL, Implied},
+    {0x38, SEC, Implied},
+    {0x39, AND, AbsoluteY},
+    {0x3A, KILL, Implied},
+    {0x3B, KILL, Implied},
+    {0x3C, KILL, Implied},
+    {0x3D, AND, AbsoluteX},
+    {0x3E, ROL, AbsoluteX},
+    {0x3F, KILL, Implied},
+    {0x40, RTI, Implied},
+    {0x41, EOR, IndirectX},
+    {0x42, KILL, Implied},
+    {0x43, KILL, Implied},
+    {0x44, KILL, Implied},
+    {0x45, EOR, ZeroPage},
+    {0x46, LSR, ZeroPage},
+    {0x47, KILL, Implied},
+    {0x48, PHA, Implied},
+    {0x49, EOR, Immediate},
+    {0x4A, LSR, Accumulator},
+    {0x4B, KILL, Implied},
+    {0x4C, JMP, Absolute},
+    {0x4D, EOR, Absolute},
+    {0x4E, LSR, Absolute},
+    {0x4F, KILL, Implied},
+    {0x50, BVC, Relative},
+    {0x51, EOR, IndirectY},
+    {0x52, KILL, Implied},
+    {0x53, KILL, Implied},
+    {0x54, KILL, Implied},
+    {0x55, EOR, ZeroPageX},
+    {0x56, LSR, ZeroPageX},
+    {0x57, KILL, Implied},
+    {0x58, CLI, Implied},
+    {0x59, EOR, AbsoluteY},
+    {0x5A, KILL, Implied},
+    {0x5B, KILL, Implied},
+    {0x5C, KILL, Implied},
+    {0x5D, EOR, AbsoluteX},
+    {0x5E, LSR, AbsoluteX},
+    {0x5F, KILL, Implied},
+    {0x60, RTS, Implied},
+    {0x61, ADC, IndirectX},
+    {0x62, KILL, Implied},
+    {0x63, KILL, Implied},
+    {0x64, KILL, Implied},
+    {0x65, ADC, ZeroPage},
+    {0x66, ROR, ZeroPage},
+    {0x67, KILL, Implied},
+    {0x68, PLA, Implied},
+    {0x69, ADC, Immediate},
+    {0x6A, ROR, Accumulator},
+    {0x6B, KILL, Implied},
+    {0x6C, JMP, Indirect},
+    {0x6D, ADC, Absolute},
+    {0x6E, ROR, Absolute},
+    {0x6F, KILL, Implied},
+    {0x70, BVS, Relative},
+    {0x71, ADC, IndirectY},
+    {0x72, KILL, Implied},
+    {0x73, KILL, Implied},
+    {0x74, KILL, Implied},
+    {0x75, ADC, ZeroPageX},
+    {0x76, ROR, ZeroPageX},
+    {0x77, KILL, Implied},
+    {0x78, SEI, Implied},
+    {0x79, ADC, AbsoluteY},
+    {0x7A, KILL, Implied},
+    {0x7B, KILL, Implied},
+    {0x7C, KILL, Implied},
+    {0x7D, ADC, AbsoluteX},
+    {0x7E, ROR, AbsoluteX},
+    {0x7F, KILL, Implied},
+    {0x80, KILL, Implied},
+    {0x81, STA, IndirectX},
+    {0x82, KILL, Implied},
+    {0x83, KILL, Implied},
+    {0x84, STY, ZeroPage},
+    {0x85, STA, ZeroPage},
+    {0x86, STX, ZeroPage},
+    {0x87, KILL, Implied},
+    {0x88, DEY, Implied},
+    {0x89, KILL, Implied},
+    {0x8A, TXA, Implied},
+    {0x8B, KILL, Implied},
+    {0x8C, STY, Absolute},
+    {0x8D, STA, Absolute},
+    {0x8E, STX, Absolute},
+    {0x8F, KILL, Implied},
+    {0x90, BCC, Relative},
+    {0x91, STA, IndirectY},
+    {0x92, KILL, Implied},
+    {0x93, KILL, Implied},
+    {0x94, STY, ZeroPageX},
+    {0x95, STA, ZeroPageX},
+    {0x96, STX, ZeroPageY},
+    {0x97, KILL, Implied},
+    {0x98, TYA, Implied},
+    {0x99, STA, AbsoluteY},
+    {0x9A, TXS, Implied},
+    {0x9B, KILL, Implied},
+    {0x9C, KILL, Implied},
+    {0x9D, STA, AbsoluteX},
+    {0x9E, KILL, Implied},
+    {0x9F, KILL, Implied},
+    {0xA0, LDY, Immediate},
+    {0xA1, LDA, IndirectX},
+    {0xA2, LDX, Immediate},
+    {0xA3, KILL, Implied},
+    {0xA4, LDY, ZeroPage},
+    {0xA5, LDA, ZeroPage},
+    {0xA6, LDX, ZeroPage},
+    {0xA7, KILL, Implied},
+    {0xA8, TAY, Implied},
+    {0xA9, LDA, Immediate},
+    {0xAA, TAX, Implied},
+    {0xAB, KILL, Implied},
+    {0xAC, LDY, Absolute},
+    {0xAD, LDA, Absolute},
+    {0xAE, LDX, Absolute},
+    {0xAF, KILL, Implied},
+    {0xB0, BCS, Relative},
+    {0xB1, LDA, IndirectY},
+    {0xB2, KILL, Implied},
+    {0xB3, KILL, Implied},
+    {0xB4, LDY, ZeroPageX},
+    {0xB5, LDA, ZeroPageX},
+    {0xB6, LDX, ZeroPageY},
+    {0xB7, KILL, Implied},
+    {0xB8, CLV, Implied},
+    {0xB9, LDA, AbsoluteY},
+    {0xBA, TSX, Implied},
+    {0xBB, KILL, Implied},
+    {0xBC, LDY, AbsoluteX},
+    {0xBD, LDA, AbsoluteX},
+    {0xBE, LDX, AbsoluteY},
+    {0xBF, KILL, Implied},
+    {0xC0, CPY, Immediate},
+    {0xC1, CMP, IndirectX},
+    {0xC2, KILL, Implied},
+    {0xC3, KILL, Implied},
+    {0xC4, CPY, ZeroPage},
+    {0xC5, CMP, ZeroPage},
+    {0xC6, DEC, ZeroPage},
+    {0xC7, KILL, Implied},
+    {0xC8, INY, Implied},
+    {0xC9, CMP, Immediate},
+    {0xCA, DEX, Implied},
+    {0xCB, KILL, Implied},
+    {0xCC, CPY, Absolute},
+    {0xCD, CMP, Absolute},
+    {0xCE, DEC, Absolute},
+    {0xCF, KILL, Implied},
+    {0xD0, BNE, Relative},
+    {0xD1, CMP, IndirectY},
+    {0xD2, KILL, Implied},
+    {0xD3, KILL, Implied},
+    {0xD4, KILL, Implied},
+    {0xD5, CMP, ZeroPageX},
+    {0xD6, DEC, ZeroPageX},
+    {0xD7, KILL, Implied},
+    {0xD8, CLD, Implied},
+    {0xD9, CMP, AbsoluteY},
+    {0xDA, KILL, Implied},
+    {0xDB, KILL, Implied},
+    {0xDC, KILL, Implied},
+    {0xDD, CMP, AbsoluteX},
+    {0xDE, DEC, AbsoluteX},
+    {0xDF, KILL, Implied},
+    {0xE0, CPX, Immediate},
+    {0xE1, SBC, IndirectX},
+    {0xE2, KILL, Implied},
+    {0xE3, KILL, Implied},
+    {0xE4, CPX, ZeroPage},
+    {0xE5, SBC, ZeroPage},
+    {0xE6, INC, ZeroPage},
+    {0xE7, KILL, Implied},
+    {0xE8, INX, Implied},
+    {0xE9, SBC, Immediate},
+    {0xEA, NOP, Implied},
+    {0xEB, KILL, Implied},
+    {0xEC, CPX, Absolute},
+    {0xED, SBC, Absolute},
+    {0xEE, INC, Absolute},
+    {0xEF, KILL, Implied},
+    {0xF0, BEQ, Relative},
+    {0xF1, SBC, IndirectY},
+    {0xF2, KILL, Implied},
+    {0xF3, KILL, Implied},
+    {0xF4, KILL, Implied},
+    {0xF5, SBC, ZeroPageX},
+    {0xF6, INC, ZeroPageX},
+    {0xF7, KILL, Implied},
+    {0xF8, SED, Implied},
+    {0xF9, SBC, AbsoluteY},
+    {0xFA, KILL, Implied},
+    {0xFB, KILL, Implied},
+    {0xFC, KILL, Implied},
+    {0xFD, SBC, AbsoluteX},
+    {0xFE, INC, AbsoluteX},
+    {0xFF, KILL, Implied},
 };
 
+uint8 memPage = 0x00;
+
+void setConsoleSize(int16 cols, int16 rows)
+{
+    // console buffer can never be smaller than the window and you cant set them in tandem
+    // so we have to shrink the window to nothing, adjust the buffer then resize back to where we want
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    SMALL_RECT windowRect = {0, 0, 1, 1};
+    BOOL result = SetConsoleWindowInfo(console, TRUE, &windowRect);
+
+    COORD newSize = {cols, rows};
+    result = SetConsoleScreenBufferSize(console, newSize);
+
+    CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+    result = GetConsoleScreenBufferInfo(console, &bufferInfo);
+
+    windowRect = {0, 0, bufferInfo.dwMaximumWindowSize.X - 1, bufferInfo.dwMaximumWindowSize.Y - 1 };
+    result = SetConsoleWindowInfo(console, TRUE, &windowRect);
+}
+
+void hideCursor()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    cursorInfo.dwSize = 10;
+    cursorInfo.bVisible = false;
+    SetConsoleCursorInfo(console, &cursorInfo);
+}
+
+void showCursor()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    cursorInfo.dwSize = 10;
+    cursorInfo.bVisible = true;
+    SetConsoleCursorInfo(console, &cursorInfo);
+}
+
+void printInstruction(uint16 address, uint8 opcode, uint8 p1, uint8 p2)
+{
+    Operation op = operations[opcode];
+    printf("0x%04X %s", address, opCodeNames[op.opCode]);
+
+    switch (op.addressMode)
+    {
+    case Absolute:
+        printf(" %02X%02X", p2, p1);
+        break;
+    case AbsoluteX:
+        printf(" %02X%02X,X", p2, p1);
+        break;
+    case AbsoluteY:
+        printf(" %02X%02X,Y", p2, p1);
+        break;
+    case Immediate:
+        printf(" #%02X", p1);
+        break;
+    case Indirect:
+        printf(" (%02X%02X)", p2, p1);
+        break;
+    case IndirectX:
+        printf(" (%02X,X)", p1);
+        break;
+    case IndirectY:
+        printf(" (%02X),Y", p1);
+        break;
+    case Relative:
+        printf(" %d", (int8)p1);
+        break;
+    case ZeroPage:
+        printf(" %02X", p1);
+        break;
+    case ZeroPageX:
+        printf(" %02X,X", p1);
+        break;
+    case ZeroPageY:
+        printf(" %02X,Y", p1);
+        break;
+    }
+
+    printf("\n");
+}
+
+void printInstruction(uint16 address)
+{
+    uint8 opcode = cpuRead(address);
+    uint8 p1 = cpuRead(address + 1);
+    uint8 p2 = cpuRead(address + 2);
+    printInstruction(address, opcode, p1, p2);
+}
+
+void printInstruction()
+{
+    printInstruction(cpu.instAddr, cpu.inst, cpu.p1, cpu.p2);
+}
+
+void debugView()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD cursorPos = {};
+    SetConsoleCursorPosition(console, cursorPos);
+
+    printf("CPU (M)emory\n");
+    printf("      ");
+    for (int i = 0; i < 16; ++i)
+    {
+        printf(" %02X", i);
+    }
+
+    cursorPos.Y = 2;
+    SetConsoleCursorPosition(console, cursorPos);
+
+    const int ROWS_TO_DISPLAY = 32;
+
+    uint16 address = ((uint16)memPage) << 8;
+    while (cursorPos.Y < ROWS_TO_DISPLAY + 2)
+    {
+        //TODO: do proper console manipulation to put these where I want it
+        printf("0x%04X", address);
+
+        for (int i = 0; i < 16; ++i)
+        {
+            printf(" %02X", cpuRead(address + i));
+        }
+
+        ++cursorPos.Y;
+        address += 16;
+        SetConsoleCursorPosition(console, cursorPos);
+    }
+
+    cursorPos.X = 56;
+    cursorPos.Y = 0;
+    SetConsoleCursorPosition(console, cursorPos);
+
+    printf("CPU Registers");
+
+    ++cursorPos.Y;
+    SetConsoleCursorPosition(console, cursorPos);
+
+    printf("A=%02X X=%02X Y=%02X", cpu.accumulator, cpu.x, cpu.y);
+
+    ++cursorPos.Y;
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("PC=%04hX S=0x01%02X P=%02X", cpu.pc, cpu.stack, cpu.status);
+
+    ++cursorPos.Y;
+    SetConsoleCursorPosition(console, cursorPos);
+    
+    uint8 carry = cpu.status & 0x01;
+    uint8 zero = (cpu.status & 0x02) >> 1;
+    uint8 interuptDisable = (cpu.status & 0x04) >> 2;
+    uint8 overflow = (cpu.status & 0x40) >> 6;
+    uint8 negative = (cpu.status & 0x80) >> 7;
+    printf("C=%d Z=%d I=%d V=%d N=%d", carry, zero, interuptDisable, overflow, negative);
+
+    cursorPos.Y += 3;
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("                                           ");
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("Current Inst: ");
+    printInstruction(cpu.instAddr);
+}
+
+void readValue()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD cursorPos = {};
+    cursorPos.X = 0;
+    cursorPos.Y = 35;
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("               ");
+    SetConsoleCursorPosition(console, cursorPos);
+
+    printf("Address: ");
+    showCursor();
+    uint16 address = 0;
+    scanf("%hx", &address);
+    hideCursor();
+
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("               ");
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("Result: %02X   ", cpuRead(address));
+}
+
+void updateNegative(uint8 val)
+{
+    cpu.status &= 0b01111111;
+    cpu.status |= val & 0b10000000;
+}
+
+void updateZero(uint8 val)
+{
+    cpu.status &= 0b11111101;
+    if (val == 0)
+    {
+        cpu.status |= 0b00000010;
+    }
+}
+
+void loadOperands()
+{
+    uint8 opcode = cpuRead(cpu.instAddr);
+    Operation op = operations[opcode];
+    switch (op.addressMode)
+    {
+        case Absolute:
+        case AbsoluteX:
+        case AbsoluteY:
+        case Indirect:
+            cpu.p1 = cpuRead(cpu.pc++);
+            cpu.p2 = cpuRead(cpu.pc++);
+            break;
+
+        case Immediate:
+        case IndirectX:
+        case IndirectY:
+        case Relative:
+        case ZeroPage:
+        case ZeroPageX:
+        case ZeroPageY:
+            cpu.p1 = cpuRead(cpu.pc++);
+            break;
+    }
+}
+
+uint16 readWord(uint16 base)
+{
+    uint8 lo = cpuRead(base);
+    uint8 hi = cpuRead(base + 1);
+    return ((uint16)hi << 8) + lo;
+}
+
+uint16 calcAddress(AddressingMode addressMode)
+{
+    switch (addressMode)
+    {
+        case Absolute:
+        {
+            return (uint16)cpu.p2 << 8 | cpu.p1;
+        }
+        case AbsoluteX:
+        {
+            uint16 a = (uint16)cpu.p2 << 8 | cpu.p1;
+            return a + cpu.x;
+        }
+        case AbsoluteY:
+        {
+            uint16 a = (uint16)cpu.p2 << 8 | cpu.p1;
+            return a + cpu.y;
+        }
+        case Indirect:
+        {
+            uint16 base = (uint16)cpu.p2 << 8 | cpu.p1;
+            return readWord(base);
+        }
+        case IndirectX:
+        {
+            uint8 base = cpu.p1 + cpu.x;
+            return readWord(base);
+        }
+        case IndirectY:
+        {
+            uint16 lo = cpuRead(cpu.p1) + (uint16)cpu.y;
+            uint16 hi = cpuRead(cpu.p1 + 1);
+            return (hi << 8) + lo;
+        }
+        case Relative:
+        {
+            return (cpu.instAddr + 2) + (int8)cpu.p1;
+        }
+        case ZeroPage:
+        {
+            return cpu.p1;
+        }
+        case ZeroPageX:
+        {
+            return cpu.p1 + cpu.x;
+        }
+        case ZeroPageY:
+        {
+            return cpu.p1 + cpu.y;
+        }
+    }
+}
+
+uint8 readData(AddressingMode addressMode)
+{
+    if (addressMode == Immediate)
+    {
+        return cpu.p1;
+    }
+
+    if (addressMode == Accumulator)
+    {
+        return cpu.accumulator;
+    }
+
+    uint16 address = calcAddress(addressMode);
+    return cpuRead(address);
+}
+
+void writeData(AddressingMode addressMode, uint8 val)
+{
+    if (addressMode == Accumulator)
+    {
+        cpu.accumulator = val;
+        return;
+    }
+
+    uint16 address = calcAddress(addressMode);
+    cpuWrite(address, val);
+}
+
+void push(uint8 val)
+{
+    cpuWrite(0x0100 | cpu.stack, val);
+    cpu.stack--;
+}
+
+void pushWord(uint16 val)
+{
+    uint8 lo = val & 0x00FF;
+    uint8 hi = (val & 0xFF00) >> 8;
+    push(hi);
+    push(lo);
+}
+
+uint8 pull()
+{
+    ++cpu.stack;
+    return cpuRead(0x0100 | cpu.stack);
+}
+
+uint16 pullWord()
+{
+    uint16 lo = pull();
+    uint16 hi = pull();
+    return (hi << 8) + lo;
+}
+
+void executeInstruction()
+{
+    Operation op = operations[cpu.inst];
+    switch (op.opCode)
+    {
+        case ADC:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 carry = cpu.status & 0b00000001;
+            uint8 sum = data + carry + cpu.accumulator;
+            
+            // Slightly complicated, but overflow only kicks in if signs are different
+            uint8 overflow = (cpu.accumulator ^ sum) & (data ^ sum) & 0b10000000;
+            cpu.status &= 0b10111110;
+            cpu.status |= overflow >> 1;
+
+            if ((uint16)data + carry + cpu.accumulator > 0xFF)
+            {
+                cpu.status |= 0b00000001;
+            }
+
+            cpu.accumulator = sum;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case AND:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.accumulator &= data;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case ASL:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.status &= ~0b00000001;
+            cpu.status |= (data & 0b10000000) >> 7;
+            data <<= 1;
+            updateNegative(data);
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case BCC:
+        {
+            if (!(cpu.status & 0b00000001))
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BCS:
+        {
+            if (cpu.status & 0b00000001)
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BEQ:
+        {
+            if (cpu.status & 0b00000010)
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BIT:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.status &= 0b00111101;
+            cpu.status |= (data & 0b11000000);
+            
+            if ((data & cpu.accumulator) == 0)
+            {
+                cpu.status |= (data & 0b00000010);
+            }
+        }
+        break;
+        case BMI:
+        {
+            if (cpu.status & 0b10000000)
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BNE:
+        {
+            if (!(cpu.status & 0b00000010))
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BPL:
+        {
+            if (!(cpu.status & 0b10000000))
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BRK:
+        {
+            pushWord(cpu.instAddr + 2);
+            push(cpu.status | 0b00110000);
+            cpu.pc = readWord(0xFFFE);
+        }
+        break;
+        case BVC:
+        {
+            if (!(cpu.status & 0b01000000))
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case BVS:
+        {
+            if (cpu.status & 0b01000000)
+            {
+                cpu.pc = calcAddress(op.addressMode);
+            }
+        }
+        break;
+        case CLC:
+        {
+            cpu.status &= 0b11111110;
+        }
+        break;
+        case CLD:
+        {
+            cpu.status &= 0b11110111;
+        }
+        break;
+        case CLI:
+        {
+            cpu.status &= 0b11111011;
+        }
+        break;
+        case CLV:
+        {
+            cpu.status &= 0b10111111;
+        }
+        break;
+        case CMP:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 result = cpu.accumulator - data;
+            cpu.status &= 0b01111100;
+            if (result >= 0)
+            {
+                cpu.status |= 0b00000011;
+            }
+
+            updateNegative(result);
+            updateZero(result);
+        }
+        break;
+        case CPX:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 result = cpu.x - data;
+            cpu.status &= 0b01111100;
+            if (result >= 0)
+            {
+                cpu.status |= 0b00000011;
+            }
+
+            updateNegative(result);
+            updateZero(result);
+        }
+        break;
+        case CPY:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 result = cpu.y - data;
+            cpu.status &= 0b01111100;
+            if (result >= 0)
+            {
+                cpu.status |= 0b00000011;
+            }
+
+            updateNegative(result);
+            updateZero(result);
+        }
+        break;
+        case DEC:
+        {
+            uint8 data = readData(op.addressMode);
+            --data;
+            updateNegative(data);
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case DEX:
+        {
+            --cpu.x;
+            updateNegative(cpu.x);
+            updateZero(cpu.x);
+        }
+        break;
+        case DEY:
+        {
+            --cpu.y;
+            updateNegative(cpu.y);
+            updateZero(cpu.y);
+        }
+        break;
+        case EOR:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.accumulator ^= data;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case INC:
+        {
+            uint8 data = readData(op.addressMode);
+            ++data;
+            updateNegative(data);
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case INX:
+        {
+            ++cpu.x;
+            updateNegative(cpu.x);
+            updateZero(cpu.x);
+        }
+        break;
+        case INY:
+        {
+            ++cpu.y;
+            updateNegative(cpu.y);
+            updateZero(cpu.y);
+        }
+        break;
+        case JMP:
+        {
+            cpu.pc = calcAddress(op.addressMode);
+        }
+        break;
+        case JSR:
+        {
+            pushWord(cpu.instAddr + 2U);
+            cpu.pc = calcAddress(op.addressMode);
+        }
+        break;
+        case LDA:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.accumulator = data;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case LDX:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.x |= data;
+            updateNegative(cpu.x);
+            updateZero(cpu.x);
+        }
+        break;
+        case LDY:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.y |= data;
+            updateNegative(cpu.y);
+            updateZero(cpu.y);
+        }
+        break;
+        case LSR:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.status &= ~0b00000001;
+            cpu.status |= data & 0b00000001;
+            data >>= 1;
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case ORA:
+        {
+            uint8 data = readData(op.addressMode);
+            cpu.accumulator |= data;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case PHA:
+        {
+            push(cpu.accumulator);
+        }
+        break;
+        case PHP:
+        {
+            push(cpu.status | 0b00110000);
+        }
+        break;
+        case PLA:
+        {
+            cpu.accumulator = pull();
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case PLP:
+        {
+            cpu.status = pull();
+        }
+        break;
+        case ROL:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 carry = cpu.status & 0b00000001;
+            cpu.status &= ~0b00000001;
+            cpu.status |= (data & 0b10000000) >> 7;
+            data = (data << 1) | carry;
+            updateNegative(data);
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case ROR:
+        {
+            uint8 data = readData(op.addressMode);
+            uint8 carry = cpu.status & 0b00000001;
+            cpu.status &= ~0b00000001;
+            cpu.status |= data & 0b00000001;
+            data = (data >> 1) | (carry << 7);
+            updateNegative(data);
+            updateZero(data);
+            writeData(op.addressMode, data);
+        }
+        break;
+        case RTI:
+        {
+            cpu.status = pull();
+            cpu.pc = pullWord();
+        }
+        break;
+        case RTS:
+        {
+            cpu.pc = pullWord() + 1;
+        }
+        break;
+        case SBC:
+        {
+            uint8 data = readData(op.addressMode);
+            data = ~data; // not sure if this will work but my understanding is the logic is the same 
+            uint8 carry = cpu.status & 0b00000001;
+            uint8 sum = data + carry + cpu.accumulator;
+
+            // Slightly complicated, but overflow only kicks in if signs are different
+            uint8 overflow = (cpu.accumulator ^ sum) & (data ^ sum) & 0b10000000;
+            cpu.status &= 0b10111110;
+            cpu.status |= overflow >> 1;
+
+            if ((uint16)data + carry + cpu.accumulator > 0xFF)
+            {
+                cpu.status |= 0b00000001;
+            }
+
+            cpu.accumulator = sum;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case SEC:
+        {
+            cpu.status |= 0b00000001;
+        }
+        break;
+        case SED:
+        {
+            cpu.status |= 0b00001000;
+        }
+        break;
+        case SEI:
+        {
+            cpu.status |= 0b00000100;
+        }
+        break;
+        case STA:
+        {
+            writeData(op.addressMode, cpu.accumulator);
+        }
+        break;
+        case STX:
+        {
+            writeData(op.addressMode, cpu.x);
+        }
+        break;
+        case STY:
+        {
+            writeData(op.addressMode, cpu.y);
+        }
+        break;
+        case TAX:
+        {
+            cpu.x = cpu.accumulator;
+            updateNegative(cpu.x);
+            updateZero(cpu.x);
+        }
+        break;
+        case TAY:
+        {
+            cpu.y = cpu.accumulator;
+            updateNegative(cpu.y);
+            updateZero(cpu.y);
+        }
+        break;
+        case TSX:
+        {
+            cpu.x = cpu.stack;
+            updateNegative(cpu.x);
+            updateZero(cpu.x);
+        }
+        break;
+        case TXA:
+        {
+            cpu.accumulator = cpu.x;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+        case TXS:
+        {
+            cpu.stack = cpu.x;
+            updateNegative(cpu.stack);
+            updateZero(cpu.stack);
+        }
+        break;
+        case TYA:
+        {
+            cpu.accumulator = cpu.y;
+            updateNegative(cpu.accumulator);
+            updateZero(cpu.accumulator);
+        }
+        break;
+    }
+}
 
 int main(int argc, char *argv[])
 {
+    setConsoleSize(160, 40);
+    hideCursor();
+
     cpu.status = 0x34;
     cpu.stack = 0xfd;
 
-    FILE* testFile = fopen("data/registers.nes", "rb");
+    FILE* testFile = fopen("data/nestest.nes", "rb");
     fseek(testFile, 0, SEEK_END);
     size_t fileSize = ftell(testFile);
     char* contents = new char[fileSize];
@@ -253,8 +1373,9 @@ int main(int argc, char *argv[])
     chrRom = (uint8*)readHead;
     readHead += 8 * 1024 * header->chrRomSize;
 
-    cpu.pc = cpuRead(0xFFFD);
-    cpu.pc = (cpu.pc << 8) | cpuRead(0xFFFC);
+    cpu.instAddr = cpu.pc = readWord(0xFFFC);
+
+    debugView();
 
     while (running)
     {
@@ -264,701 +1385,33 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if (input == 'd')
+        {
+            memPage += 2;
+            debugView();
+            continue;
+        }
+
+        if (input == 'a')
+        {
+            memPage -= 2;
+            debugView();
+            continue;
+        }
+
+        if (input == 'r')
+        {
+            readValue();
+            continue;
+        }
+
         if (input == ' ')
         {
-            cpu.instAddr = cpu.pc;
             cpu.inst = cpuRead(cpu.pc++);
-            switch (cpu.inst)
-            {
-                case 0x00:
-                    printf("BRK\n");
-                    break;
-
-                case 0x01:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    printf("ORA (%x,X)\n", p1);
-                }
-                break;
-
-                case 0x05:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    printf("ORA %x\n", p1);
-                }
-                break;
-
-                case 0x06:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    printf("ASL %x\n", p1);
-                }
-                break;
-
-                case 0x08:
-                    printf("PHP\n");
-                    break;
-
-                case 0x09:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    cpu.accumulator |= p1;
-                    printf("ORA #%x\n", p1);
-                }
-                break;
-
-                case 0x0A:
-                    printf("ASL A\n");
-                    break;
-
-                case 0x0D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ORA %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0x0E:
-                {
-                    uint8 lo = cpuRead(cpu.pc++);
-                    uint8 hi = cpuRead(cpu.pc++);
-                    printf("ASL %x%x\n", hi, lo);
-                }
-                break;
-
-                case 0x10:
-                {
-                    uint8 offset = cpuRead(cpu.pc++);
-                    printf("BPL %d\n", (int8)offset);
-                }
-                break;
-
-                case 0x11:
-                    printf("ORA (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x15:
-                    printf("ORA %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x16:
-                    printf("ASl %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x18:
-                    printf("CLC\n");
-                    break;
-                case 0x19:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ORA %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0x1D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ORA %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0x1E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ASL %x%x,X\n", p1, p2);
-                }
-                break;
-
-                case 0x20:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("JSR %x%x\n", p1, p2);
-                }
-                break;
-                case 0x21:
-                    printf("AND (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x24:
-                    printf("BIT %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x25:
-                    printf("AND %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x26:
-                    printf("ROL %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x28:
-                    printf("PLP\n");
-                    break;
-                case 0x29:
-                    printf("AND #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x2A:
-                    printf("ROL A\n");
-                    break;
-                case 0x2C:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("BIT %x%x\n", p1, p2);
-                }
-                break;
-                case 0x2D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("AND %x%x\n", p1, p2);
-                }
-                break;
-                case 0x2E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ROL %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0x30:
-                    printf("BMI %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x31:
-                    printf("AND (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x35:
-                    printf("AND %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x36:
-                    printf("ROL %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x38:
-                    printf("SEC\n");
-                    break;
-                case 0x39:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("AND %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0x3D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("AND %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0x3E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ROL %x%x,X\n", p1, p2);
-                }
-                break;
-
-                case 0x40:
-                    printf("RTI\n");
-                    break;
-                case 0x41:
-                    printf("EOR (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x45:
-                    printf("EOR %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x46:
-                    printf("LSR %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x48:
-                    printf("PHA\n");
-                    break;
-                case 0x49:
-                    printf("EOR #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x4A:
-                    printf("LSR A\n");
-                    break;
-                case 0x4C:
-                {
-                    uint8 lo = cpuRead(cpu.pc++);
-                    uint8 hi = cpuRead(cpu.pc++);
-                    printf("JMP %x%x\n", hi, lo);
-                }
-                break;
-                case 0x4D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("EOR %x%x\n", p1, p2);
-                }
-                break;
-                case 0x4E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LSR %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0x50:
-                    printf("BVC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x51:
-                    printf("EOR (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x55:
-                    printf("EOR %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x56:
-                    printf("LSR %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x58:
-                    printf("CLI A\n");
-                    break;
-                case 0x59:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("EOR %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0x5D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("EOR %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0x5E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LSR %x%x,Y\n", p1, p2);
-                }
-                break;
-
-                case 0x60:
-                    printf("RTS\n");
-                    break;
-                case 0x61:
-                    printf("ADC (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x65:
-                    printf("ADC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x66:
-                    printf("ROR %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x68:
-                    printf("PLA\n");
-                    break;
-                case 0x69:
-                    printf("ADC #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x6A:
-                    printf("ROR A\n");
-                    break;
-                case 0x6C:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("JMP (%x%x)\n", p1, p2);
-                }
-                break;
-                case 0x6D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ADC %x%x\n", p1, p2);
-                }
-                break;
-                case 0x6E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ROR %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0x70:
-                    printf("BVC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x71:
-                    printf("ADC (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x75:
-                    printf("ADC %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x76:
-                    printf("ROR %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x78:
-                    printf("SEI\n");
-                    break;
-                case 0x79:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ADC %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0x7D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ADC %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0x7E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("ROR %x%x,X\n", p1, p2);
-                }
-                break;
-
-                case 0x81:
-                    printf("STA (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x84:
-                    printf("STY %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x85:
-                    printf("STA %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x86:
-                    printf("STX #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x88:
-                    printf("DEC\n");
-                    break;
-                case 0x8A:
-                    printf("TXA\n");
-                    break;
-                case 0x8C:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("STX %x%x\n", p1, p2);
-                }
-                break;
-                case 0x8D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("STY %x%x\n", p1, p2);
-                }
-                break;
-                case 0x8E:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("STA %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0x90:
-                    printf("BCC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x91:
-                    printf("STA (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x94:
-                    printf("STY %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x95:
-                    printf("STA %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x96:
-                    printf("STX %x,Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0x98:
-                    printf("TYA\n");
-                    break;
-                case 0x99:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("STA %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0x9A:
-                    printf("TXS\n");
-                    break;
-                case 0x9D:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("STA %x%x,X\n", p1, p2);
-                }
-                break;
-
-                case 0xA0:
-                    printf("LDY #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA1:
-                    printf("LDA (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA2:
-                    printf("LDX #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA4:
-                    printf("LDY %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA5:
-                    printf("LDA %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA6:
-                    printf("LDX %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xA8:
-                    printf("TAY\n");
-                    break;
-                case 0xA9:
-                    printf("LDA #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xAA:
-                    printf("TAX\n");
-                    break;
-                case 0xAC:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDY %x%x\n", p1, p2);
-                }
-                break;
-                case 0xAD:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDA %x%x\n", p1, p2);
-                }
-                break;
-                case 0xAE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDX %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0xB0:
-                    printf("BSC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xB1:
-                    printf("LDA (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xB4:
-                    printf("LDY %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xB5:
-                    printf("LDA %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xB6:
-                    printf("LDX %x,Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xB8:
-                    printf("CLV\n");
-                    break;
-                case 0xB9:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDA %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0xBA:
-                    printf("TSX\n");
-                    break;
-                case 0xBC:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDY %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0xBD:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDA %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0xBE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("LDX %x%x,Y\n", p1, p2);
-                }
-                break;
-
-                case 0xC0:
-                    printf("CPY #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xC1:
-                    printf("CMP (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xC4:
-                    printf("CPY %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xC5:
-                    printf("CMP %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xC6:
-                    printf("DEC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xC8:
-                    printf("INY\n");
-                    break;
-                case 0xC9:
-                    printf("CMP #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xCA:
-                    printf("DEC\n");
-                    break;
-                case 0xCC:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("CPY %x%x\n", p1, p2);
-                }
-                break;
-                case 0xCD:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("CMP %x%x\n", p1, p2);
-                }
-                break;
-                case 0xCE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("DEC %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0xD0:
-                    printf("BNE %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xD1:
-                    printf("CMP (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xD5:
-                    printf("CMP %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xD6:
-                    printf("DEC %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xD8:
-                    printf("CLD\n");
-                    break;
-                case 0xD9:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("CMP %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0xDD:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("CMP %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0xDE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("DEC %x%x,X\n", p1, p2);
-                }
-                break;
-
-                case 0xE0:
-                    printf("CPX #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xE1:
-                    printf("SBC (%x,X)\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xE4:
-                    printf("CPX %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xE5:
-                    printf("SBC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xE6:
-                    printf("INC %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xE8:
-                    printf("INX\n");
-                    break;
-                case 0xE9:
-                    printf("SBC #%x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xEA:
-                    printf("NOP\n");
-                    break;
-                case 0xEC:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("CPX %x%x\n", p1, p2);
-                }
-                break;
-                case 0xED:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("SBC %x%x\n", p1, p2);
-                }
-                break;
-                case 0xEE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("INC %x%x\n", p1, p2);
-                }
-                break;
-
-                case 0xF0:
-                    printf("BEQ %x\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xF1:
-                    printf("SBC (%x),Y\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xF5:
-                    printf("SBC %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xF6:
-                    printf("INC %x,X\n", cpuRead(cpu.pc++));
-                    break;
-                case 0xF8:
-                    printf("SED\n");
-                    break;
-                case 0xF9:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("SBC %x%x,Y\n", p1, p2);
-                }
-                break;
-                case 0xFD:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("SBC %x%x,X\n", p1, p2);
-                }
-                break;
-                case 0xFE:
-                {
-                    uint8 p1 = cpuRead(cpu.pc++);
-                    uint8 p2 = cpuRead(cpu.pc++);
-                    printf("INC %x%x,X\n", p1, p2);
-                }
-                break;
-
-                default:
-                    printf("Illegal Opcode: %x\n", cpu.inst);
-            }
+            loadOperands();
+            executeInstruction();
+            cpu.instAddr = cpu.pc;
+            debugView();
         }
     }
 
