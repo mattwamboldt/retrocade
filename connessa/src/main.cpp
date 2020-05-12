@@ -89,6 +89,7 @@ bool running = true;
 // globals are bad!!! change this later!!!
 static CPU cpu = {};
 static uint8 ram[2 * 1024] = {};
+static uint8 cartRam[8 * 1024] = {};
 
 static uint8* map000prgRomBank1;
 static uint8* map000prgRomBank2;
@@ -166,11 +167,15 @@ uint8 cpuRead(uint16 address)
 
     // Cartridge space (logic depends on the mapper)
     // TODO: allow multiple mappers, for now using 000 since its the one in the test case
+
+    if (address < 0x6000)
+    {
+        return 0;
+    }
+
     if (address < 0x8000)
     {
-        // INVALID READ ON THIS MAPPER
-        // TODO: Figure out a way to handle these kinds of errors, not sure what hardware would do
-        return 0;
+        return cartRam[address - 0x6000];
     }
 
     if (address < 0xC000)
@@ -238,11 +243,9 @@ void cpuWrite(uint16 address, uint8 value)
     }
     // Cartridge space (logic depends on the mapper)
     // TODO: allow multiple mappers, for now using 000 since its the one in the test case
-    else
+    else if (address > 0x6000 && address < 0x8000)
     {
-        // INVALID Write ON THIS MAPPER
-        // TODO: Figure out a way to handle these kinds of errors, not sure what hardware would do
-        // probably nothing, mapper000 is rom so you can't physically write to it
+        cartRam[address - 0x6000] = value;
     }
 }
 
@@ -1450,7 +1453,7 @@ int main(int argc, char *argv[])
     cpu.status = 0x34;
     cpu.stack = 0xfd;
 
-    FILE* testFile = fopen("data/nestest.nes", "rb");
+    FILE* testFile = fopen("data/01-basics.nes", "rb");
     fseek(testFile, 0, SEEK_END);
     size_t fileSize = ftell(testFile);
     char* contents = new char[fileSize];
