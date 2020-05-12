@@ -187,6 +187,33 @@ uint8 cpuRead(uint16 address)
     return map000prgRomBank2[address - 0xC000];
 }
 
+// TODO: we've officially reached the point of needing some refactor action
+// The order of declarations is getting a bit hairy for my liking
+static bool renderMode = false;
+static uint8 debugMemPage;
+
+void renderMemCell(uint16 address, uint8 val)
+{
+    if (renderMode)
+    {
+        return;
+    }
+
+    if (address >> 8 != debugMemPage && address >> 8 != debugMemPage + 1)
+    {
+        return;
+    }
+
+    uint8 x = (uint8)(address & 0x000F);
+    uint8 y = (address & 0x01F0) >> 4;
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD cursorPos = { 7, 2 };
+    cursorPos.X += x * 3;
+    cursorPos.Y += y;
+    SetConsoleCursorPosition(console, cursorPos);
+    printf("%02X", val);
+}
+
 // TODO: Handle interrupts as a result of reads and writes
 void cpuWrite(uint16 address, uint8 value)
 {
@@ -194,6 +221,7 @@ void cpuWrite(uint16 address, uint8 value)
     {
         // map to the internal 2kb ram
         ram[address & 0x07FF] = value;
+        renderMemCell(address, value);
     }
     else if (address < 0x4000)
     {
@@ -211,6 +239,8 @@ void cpuWrite(uint16 address, uint8 value)
             case 0x06: ppu.address = value; break;
             case 0x07: ppu.data = value; break;
         }
+
+        renderMemCell(address, value);
     }
     else if (address < 0x4020)
     {
@@ -242,12 +272,15 @@ void cpuWrite(uint16 address, uint8 value)
             case 0x4017: joy2 = value; break;
             default: return;
         }
+
+        renderMemCell(address, value);
     }
     // Cartridge space (logic depends on the mapper)
     // TODO: allow multiple mappers, for now using 000 since its the one in the test case
     else if (address > 0x6000 && address < 0x8000)
     {
         cartRam[address - 0x6000] = value;
+        renderMemCell(address, value);
     }
 }
 
@@ -655,8 +688,6 @@ Operation operations[] = {
     {0xFF, KILL, Implied},
 };
 
-uint8 memPage = 0x00;
-
 void setConsoleSize(int16 cols, int16 rows, int charWidth, int charHeight)
 {
     // console buffer can never be smaller than the window and you cant set them in tandem
@@ -761,6 +792,7 @@ void printInstruction()
     printInstruction(cpu.instAddr, cpu.inst, cpu.p1, cpu.p2);
 }
 
+static bool memViewRendered = false;
 static int64 frameElapsed = 1;
 static int64 cpuFreq = 1;
 
@@ -780,7 +812,7 @@ void drawFps()
 
 bool asciiMode = false;
 
-void debugView()
+void renderMemoryView()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     COORD cursorPos = {};
@@ -798,7 +830,7 @@ void debugView()
 
     const int ROWS_TO_DISPLAY = 32;
 
-    uint16 address = ((uint16)memPage) << 8;
+    uint16 address = ((uint16)debugMemPage) << 8;
     while (cursorPos.Y < ROWS_TO_DISPLAY + 2)
     {
         //TODO: do proper console manipulation to put these where I want it
@@ -821,9 +853,18 @@ void debugView()
         address += 16;
         SetConsoleCursorPosition(console, cursorPos);
     }
-    
-    cursorPos.X = 56;
-    cursorPos.Y = 0;
+}
+
+void debugView()
+{
+    if (!memViewRendered)
+    {
+        renderMemoryView();
+        memViewRendered = true;
+    }
+
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD cursorPos = { 56, 0 };
     SetConsoleCursorPosition(console, cursorPos);
 
     printf("CPU Registers");
@@ -1636,8 +1677,6 @@ void gameView()
     WriteConsoleOutputA(console, pixels, { NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT }, { 0, 0 }, &location);
 }
 
-static bool renderMode = false;
-
 void activateRenderMode()
 {
     setConsoleSize(NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, 4, 4);
@@ -1714,12 +1753,14 @@ int main(int argc, char *argv[])
 
             if (input == 'd')
             {
-                memPage += 2;
+                debugMemPage += 2;
+                memViewRendered = false;
             }
 
             if (input == 'a')
             {
-                memPage -= 2;
+                debugMemPage -= 2;
+                memViewRendered = false;
             }
 
             if (input == 'c')
@@ -1752,8 +1793,18 @@ int main(int argc, char *argv[])
             // TOOD: implement a cycle wait based on instruction
             // Or run correctly per cycle using the t member
             cpu.inst = cpuRead(cpu.pc++);
-            loadOperands();
-            executeInstruction();
+            Operation op = operations[cpu.inst];
+            if (!singleStepMode && op.opCode == KILL)
+            {
+                --cpu.pc;
+                singleStepMode = true;
+            }
+            else
+            {
+                loadOperands();
+                executeInstruction();
+            }
+            
             cpu.instAddr = cpu.pc;
             stepRequested = false;
         }
