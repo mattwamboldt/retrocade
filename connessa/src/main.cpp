@@ -97,6 +97,7 @@ static uint8* map000prgRam;
 
 static PPU ppu = {};
 static uint8 vram[2 * 1024] = {};
+static uint8 paletteRam[32];
 static uint8* chrRom;
 
 static APU apu = {};
@@ -186,6 +187,7 @@ uint8 cpuRead(uint16 address)
     return map000prgRomBank2[address - 0xC000];
 }
 
+// TODO: Handle interrupts as a result of reads and writes
 void cpuWrite(uint16 address, uint8 value)
 {
     if (address < 0x2000)
@@ -655,7 +657,7 @@ Operation operations[] = {
 
 uint8 memPage = 0x00;
 
-void setConsoleSize(int16 cols, int16 rows)
+void setConsoleSize(int16 cols, int16 rows, int charWidth, int charHeight)
 {
     // console buffer can never be smaller than the window and you cant set them in tandem
     // so we have to shrink the window to nothing, adjust the buffer then resize back to where we want
@@ -665,6 +667,16 @@ void setConsoleSize(int16 cols, int16 rows)
 
     COORD newSize = {cols, rows};
     result = SetConsoleScreenBufferSize(console, newSize);
+
+    CONSOLE_FONT_INFOEX fontInfo;
+    fontInfo.cbSize = sizeof(fontInfo);
+    fontInfo.nFont = 0;
+    fontInfo.dwFontSize.X = charWidth;
+    fontInfo.dwFontSize.Y = charHeight;
+    fontInfo.FontFamily = FF_DONTCARE;
+    fontInfo.FontWeight = FW_NORMAL;
+    wcscpy_s(fontInfo.FaceName, L"Consolas");
+    SetCurrentConsoleFontEx(console, false, &fontInfo);
 
     CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
     result = GetConsoleScreenBufferInfo(console, &bufferInfo);
@@ -810,7 +822,7 @@ void debugView()
 
     cursorPos.Y += 3;
     SetConsoleCursorPosition(console, cursorPos);
-    printf("                                           ");
+    printf("                                  ");
     SetConsoleCursorPosition(console, cursorPos);
     printf("Current Inst: ");
     printInstruction(cpu.instAddr);
@@ -1445,9 +1457,173 @@ void executeInstruction()
     }
 }
 
+// This read and write is based on mapper000, will expand later
+uint8 ppuRead(uint16 address)
+{
+    if (address < 0x2000)
+    {
+        return chrRom[address];
+    }
+
+    if (address < 0x3F00)
+    {
+        address &= 0x2FFF;
+        // TODO: handle mirroring configuration
+        return vram[address & 0x07FF];
+    }
+
+    // palettes http://wiki.nesdev.com/w/index.php/PPU_palettes
+    address &= 0x001F;
+    switch (address)
+    {
+        case 0x10: return paletteRam[0x00];
+        case 0x14: return paletteRam[0x04];
+        case 0x18: return paletteRam[0x08];
+        case 0x1C: return paletteRam[0x0C];
+        default: return paletteRam[address];
+    }
+}
+
+void ppuWrite(uint16 address, uint8 val)
+{
+    if (address < 0x2000)
+    {
+        chrRom[address] = val;
+    }
+
+    if (address < 0x3F00)
+    {
+        address &= 0x2FFF;
+        // TODO: handle mirroring configuration
+        vram[address & 0x07FF] = val;
+    }
+
+    // palettes http://wiki.nesdev.com/w/index.php/PPU_palettes
+    address &= 0x001F;
+    switch (address)
+    {
+        case 0x10: paletteRam[0x00] = val;
+        case 0x14: paletteRam[0x04] = val;
+        case 0x18: paletteRam[0x08] = val;
+        case 0x1C: paletteRam[0x0C] = val;
+        default: paletteRam[address] = val;
+    }
+}
+
+#define NES_SCREEN_HEIGHT 240
+#define NES_SCREEN_WIDTH 256
+
+static uint32 ppuCycle = 0;
+
+static uint8 nametableByte;
+static uint8 attributetableByte;
+static uint8 patternLo;
+static uint8 patternHi;
+
+static CHAR_INFO palette[0x4F] = {
+    { '#', 0 },
+    { '#', 0x10 },
+    { '#', 0x20 },
+    { '#', 0x30 },
+    { '#', 0x40 },
+    { '#', 0x50 },
+    { '#', 0x60 },
+    { '#', 0x70 },
+    { '#', 0x80 },
+    { '#', 0x90 },
+    { '#', 0xA0 },
+    { '#', 0xB0 },
+    { '#', 0xD0 },
+    { '#', 0xE0 },
+    { '#', 0xF0 },
+    { ' ', 0 },
+    { ' ', 0x10 },
+    { ' ', 0x20 },
+    { ' ', 0x30 },
+    { ' ', 0x40 },
+    { ' ', 0x50 },
+    { ' ', 0x60 },
+    { ' ', 0x70 },
+    { ' ', 0x80 },
+    { ' ', 0x90 },
+    { ' ', 0xA0 },
+    { ' ', 0xB0 },
+    { ' ', 0xD0 },
+    { ' ', 0xE0 },
+    { ' ', 0xF0 },
+    { '.', FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED },
+    { '.', FOREGROUND_GREEN | FOREGROUND_RED },
+    { '.', FOREGROUND_RED },
+    { '.', FOREGROUND_BLUE | FOREGROUND_RED },
+    { '.', FOREGROUND_BLUE },
+    { '.', FOREGROUND_GREEN },
+    { '.', BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED },
+    { '.', BACKGROUND_GREEN | BACKGROUND_RED },
+    { '.', BACKGROUND_RED },
+    { '.', BACKGROUND_BLUE | BACKGROUND_RED },
+    { '.', BACKGROUND_BLUE },
+    { '.', BACKGROUND_GREEN },
+    { '.', BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED | BACKGROUND_RED },
+    { '.', BACKGROUND_RED | FOREGROUND_BLUE },
+    { '.', BACKGROUND_BLUE | BACKGROUND_RED },
+    { '.', BACKGROUND_GREEN | BACKGROUND_RED },
+    { '#', 0xBF },
+    { '#', 0x0F },
+    { '#', 0x1F },
+    { '#', 0x2F },
+    { '#', 0x3F },
+    { '#', 0x4F },
+    { '#', 0x5F },
+    { '#', 0x6F },
+    { '#', 0x7F },
+    { '#', 0x8F },
+    { '#', 0x9F },
+    { '#', 0xAF },
+    { '#', 0xDF },
+    { '#', 0xEF },
+    { '#', 0xFF },
+};
+
+static CHAR_INFO pixels[NES_SCREEN_WIDTH * NES_SCREEN_HEIGHT];
+
+void drawRect(int paletteIndex, int x, int y, int width, int height)
+{
+    for (int py = y; py < NES_SCREEN_HEIGHT && py < y + height; ++py)
+    {
+        for (int px = x; px < NES_SCREEN_WIDTH && px < x + width; ++px)
+        {
+            pixels[NES_SCREEN_WIDTH * py + px] = palette[paletteIndex];
+        }
+    }
+}
+
+void gameView()
+{
+    drawRect(5, 0, 0, 16, 16);
+    drawRect(10, 100, 100, 25, 25);
+
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    SMALL_RECT location = {0, 0, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT };
+    WriteConsoleOutputA(console, pixels, { NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT }, { 0, 0 }, &location);
+}
+
+static bool renderMode = false;
+
+void activateRenderMode()
+{
+    setConsoleSize(NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, 4, 4);
+    renderMode = true;
+}
+
+void activateDebugMode()
+{
+    setConsoleSize(160, 40, 8, 16);
+    renderMode = false;
+}
+
 int main(int argc, char *argv[])
 {
-    setConsoleSize(160, 40);
+    activateDebugMode();
     hideCursor();
 
     cpu.status = 0x34;
@@ -1496,21 +1672,23 @@ int main(int argc, char *argv[])
         if (input == 'd')
         {
             memPage += 2;
-            debugView();
-            continue;
         }
 
         if (input == 'a')
         {
             memPage -= 2;
-            debugView();
-            continue;
         }
 
         if (input == 'r')
         {
-            readValue();
-            continue;
+            if (renderMode)
+            {
+                activateDebugMode();
+            }
+            else
+            {
+                activateRenderMode();
+            }
         }
 
         if (input == ' ')
@@ -1519,6 +1697,14 @@ int main(int argc, char *argv[])
             loadOperands();
             executeInstruction();
             cpu.instAddr = cpu.pc;
+        }
+
+        if (renderMode)
+        {
+            gameView();
+        }
+        else
+        {
             debugView();
         }
     }
