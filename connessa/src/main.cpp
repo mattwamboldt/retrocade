@@ -130,7 +130,7 @@ uint8 cpuRead(uint16 address)
             case 0x06: return ppu.address;
             case 0x07: return ppu.data;
             default: return 0;
-    }
+        }
     }
 
     if (address < 0x4020)
@@ -163,7 +163,7 @@ uint8 cpuRead(uint16 address)
             case 0x4016: return joy1;
             case 0x4017: return joy2;
             default: return 0;
-    }
+        }
     }
 
     // Cartridge space (logic depends on the mapper)
@@ -707,7 +707,7 @@ void printInstruction(uint16 address, uint8 opcode, uint8 p1, uint8 p2)
 {
     Operation op = operations[opcode];
     printf("0x%04X %s", address, opCodeNames[op.opCode]);
-
+    
     switch (op.addressMode)
     {
     case Absolute:
@@ -761,6 +761,23 @@ void printInstruction()
     printInstruction(cpu.instAddr, cpu.inst, cpu.p1, cpu.p2);
 }
 
+static int64 frameElapsed = 1;
+static int64 cpuFreq = 1;
+
+void drawFps()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD cursorPos = { 100, 3 };
+    SetConsoleCursorPosition(console, cursorPos);
+
+    int32 msPerFrame = (int32)((1000 * frameElapsed) / cpuFreq);
+    if (msPerFrame)
+    {
+        int32 framesPerSecond = 1000 / msPerFrame;
+        printf("MS Per Frame = %08d FPS: %d", msPerFrame, framesPerSecond);
+    }
+}
+
 bool asciiMode = false;
 
 void debugView()
@@ -804,7 +821,7 @@ void debugView()
         address += 16;
         SetConsoleCursorPosition(console, cursorPos);
     }
-
+    
     cursorPos.X = 56;
     cursorPos.Y = 0;
     SetConsoleCursorPosition(console, cursorPos);
@@ -836,6 +853,8 @@ void debugView()
     SetConsoleCursorPosition(console, cursorPos);
     printf("Current Inst: ");
     printInstruction(cpu.instAddr);
+
+    drawFps();
 }
 
 void readValue()
@@ -1631,6 +1650,8 @@ void activateDebugMode()
     renderMode = false;
 }
 
+bool singleStepMode = true;
+
 int main(int argc, char *argv[])
 {
     activateDebugMode();
@@ -1671,56 +1692,90 @@ int main(int argc, char *argv[])
 
     debugView();
 
+    LARGE_INTEGER counterFrequency;
+    QueryPerformanceFrequency(&counterFrequency);
+    cpuFreq = counterFrequency.QuadPart;
+
+    LARGE_INTEGER lastCounter;
+    QueryPerformanceCounter(&lastCounter);
+    int64 refreshRate = cpuFreq / 30;
+    LARGE_INTEGER lastRender = lastCounter;
+
+    bool stepRequested = false;
     while (running)
     {
-        char input = _getch();
-        if (input == 'q')
+        if (_kbhit())
         {
-            break;
-        }
-
-        if (input == 'd')
-        {
-            memPage += 2;
-        }
-
-        if (input == 'a')
-        {
-            memPage -= 2;
-        }
-
-        if (input == 'c')
-        {
-            asciiMode = !asciiMode;
-        }
-
-        if (input == 'r')
-        {
-            if (renderMode)
+            char input = _getch();
+            if (input == 'q')
             {
-                activateDebugMode();
+                running = false;
             }
-            else
+
+            if (input == 'd')
             {
-                activateRenderMode();
+                memPage += 2;
+            }
+
+            if (input == 'a')
+            {
+                memPage -= 2;
+            }
+
+            if (input == 'c')
+            {
+                asciiMode = !asciiMode;
+            }
+
+            if (input == 'p')
+            {
+                singleStepMode = !singleStepMode;
+            }
+
+            stepRequested = input == ' ';
+
+            if (input == 'r')
+            {
+                if (renderMode)
+                {
+                    activateDebugMode();
+                }
+                else
+                {
+                    activateRenderMode();
+                }
             }
         }
-
-        if (input == ' ')
+        
+        if (!singleStepMode || stepRequested)
         {
+            // TOOD: implement a cycle wait based on instruction
+            // Or run correctly per cycle using the t member
             cpu.inst = cpuRead(cpu.pc++);
             loadOperands();
             executeInstruction();
             cpu.instAddr = cpu.pc;
+            stepRequested = false;
         }
 
-        if (renderMode)
+        // TODO: This timing is Garbage, but all I need at the moment is to slow the renderer so the sim can run full force.
+        LARGE_INTEGER preRenderCounter;
+        QueryPerformanceCounter(&preRenderCounter);
+        int64 frameGap = preRenderCounter.QuadPart - lastRender.QuadPart;
+
+        if (frameGap > refreshRate)
         {
-            gameView();
-        }
-        else
-        {
-            debugView();
+            if (renderMode)
+            {
+                gameView();
+            }
+            else
+            {
+                debugView();
+            }
+
+            frameElapsed = frameGap;
+            lastRender = preRenderCounter;
         }
     }
 
