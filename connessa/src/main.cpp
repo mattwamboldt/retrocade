@@ -1147,7 +1147,7 @@ void executeInstruction()
             uint8 data = readData(op.addressMode);
             uint8 result = cpu.accumulator - data;
             cpu.status &= 0b01111100;
-            if (result >= 0)
+            if ((int8)result >= 0)
             {
                 cpu.status |= 0b00000011;
             }
@@ -1161,7 +1161,7 @@ void executeInstruction()
             uint8 data = readData(op.addressMode);
             uint8 result = cpu.x - data;
             cpu.status &= 0b01111100;
-            if (result >= 0)
+            if ((uint8)result >= 0)
             {
                 cpu.status |= 0b00000011;
             }
@@ -1175,7 +1175,7 @@ void executeInstruction()
             uint8 data = readData(op.addressMode);
             uint8 result = cpu.y - data;
             cpu.status &= 0b01111100;
-            if (result >= 0)
+            if ((uint8)result >= 0)
             {
                 cpu.status |= 0b00000011;
             }
