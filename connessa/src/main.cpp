@@ -761,6 +761,8 @@ void printInstruction()
     printInstruction(cpu.instAddr, cpu.inst, cpu.p1, cpu.p2);
 }
 
+bool asciiMode = false;
+
 void debugView()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -787,7 +789,15 @@ void debugView()
 
         for (int i = 0; i < 16; ++i)
         {
-            printf(" %02X", cpuRead(address + i));
+            uint8 d = cpuRead(address + i);
+            if (!asciiMode || !isprint(d))
+            {
+                printf(" %02X", d);
+            }
+            else
+            {
+                printf("  %c", (char)d);
+            }
         }
 
         ++cursorPos.Y;
@@ -1677,6 +1687,11 @@ int main(int argc, char *argv[])
         if (input == 'a')
         {
             memPage -= 2;
+        }
+
+        if (input == 'c')
+        {
+            asciiMode = !asciiMode;
         }
 
         if (input == 'r')
