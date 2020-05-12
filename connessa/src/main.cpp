@@ -32,9 +32,40 @@ struct PPU
     uint8 status;
     uint8 oamAddress;
     uint8 oamData;
+    uint8 scroll;
     uint8 address;
     uint8 data;
-    uint8 oamdma;
+    uint8 oamDma;
+    uint8 oam[256];
+};
+
+// http://wiki.nesdev.com/w/index.php/2A03
+struct APU
+{
+    uint8 square1Vol;
+    uint8 square1Sweep;
+    uint8 square1Lo;
+    uint8 square1Hi;
+
+    uint8 square2Vol;
+    uint8 square2Sweep;
+    uint8 square2Lo;
+    uint8 square2Hi;
+
+    uint8 triangleLinear;
+    uint8 triangleLo;
+    uint8 triangleHi;
+
+    uint8 noiseVol;
+    uint8 noiseLo;
+    uint8 noiseHi;
+
+    uint8 dmcFrequency;
+    uint8 dmcRaw;
+    uint8 dmcStart;
+    uint8 dmcLength;
+
+    uint8 channelStatus;
 };
 
 // PRG = cartridge side connected to the cpu
@@ -63,8 +94,13 @@ static uint8* map000prgRomBank1;
 static uint8* map000prgRomBank2;
 static uint8* map000prgRam;
 
+static PPU ppu = {};
 static uint8 vram[2 * 1024] = {};
 static uint8* chrRom;
+
+static APU apu = {};
+static uint8 joy1;
+static uint8 joy2;
 
 uint8 cpuRead(uint16 address)
 {
@@ -78,14 +114,54 @@ uint8 cpuRead(uint16 address)
     {
         // map to the ppu register based on the last 3 bits
         // http://wiki.nesdev.com/w/index.php/PPU_registers
-        return 0;
+        // TODO: might be better to store the registers as an array or union
+        // doing the dumb obvious thing for now
+        uint16 masked = address & 0x0007;
+        switch (masked)
+        {
+            case 0x00: return ppu.control;
+            case 0x01: return ppu.mask;
+            case 0x02: return ppu.status;
+            case 0x03: return ppu.oamAddress;
+            case 0x04: return ppu.oamData;
+            case 0x05: return ppu.scroll;
+            case 0x06: return ppu.address;
+            case 0x07: return ppu.data;
+            default: return 0;
+    }
     }
 
     if (address < 0x4020)
     {
         // map to the apu/io registers
         // http://wiki.nesdev.com/w/index.php/2A03
-        return 0;
+        // TODO: docs mention these as readonly, remove if that matters
+        switch (address)
+        {
+            case 0x4000: return apu.square1Vol;
+            case 0x4001: return apu.square1Sweep;
+            case 0x4002: return apu.square1Lo;
+            case 0x4003: return apu.square1Hi;
+            case 0x4004: return apu.square2Vol;
+            case 0x4005: return apu.square2Sweep;
+            case 0x4006: return apu.square2Lo;
+            case 0x4007: return apu.square2Vol;
+            case 0x4008: return apu.triangleLinear;
+            case 0x400A: return apu.triangleLo;
+            case 0x400B: return apu.triangleHi;
+            case 0x400C: return apu.noiseVol;
+            case 0x400E: return apu.noiseLo;
+            case 0x400F: return apu.noiseHi;
+            case 0x4010: return apu.dmcFrequency;
+            case 0x4011: return apu.dmcRaw;
+            case 0x4012: return apu.dmcStart;
+            case 0x4013: return apu.dmcLength;
+            case 0x4014: return ppu.oamDma;
+            case 0x4015: return apu.channelStatus;
+            case 0x4016: return joy1;
+            case 0x4017: return joy2;
+            default: return 0;
+    }
     }
 
     // Cartridge space (logic depends on the mapper)
@@ -116,11 +192,49 @@ void cpuWrite(uint16 address, uint8 value)
     {
         // map to the ppu register based on the last 3 bits
         // http://wiki.nesdev.com/w/index.php/PPU_registers
+        uint16 masked = address & 0x0007;
+        switch (masked)
+        {
+            case 0x00: ppu.control = value; break;
+            case 0x01: ppu.mask = value; break;
+            case 0x02: ppu.status = value; break;
+            case 0x03: ppu.oamAddress = value; break;
+            case 0x04: ppu.oamData = value; break;
+            case 0x05: ppu.scroll = value; break;
+            case 0x06: ppu.address = value; break;
+            case 0x07: ppu.data = value; break;
+        }
     }
     else if (address < 0x4020)
     {
         // map to the apu/io registers
         // http://wiki.nesdev.com/w/index.php/2A03
+        switch (address)
+        {
+            case 0x4000: apu.square1Vol = value; break;
+            case 0x4001: apu.square1Sweep = value; break;
+            case 0x4002: apu.square1Lo = value; break;
+            case 0x4003: apu.square1Hi = value; break;
+            case 0x4004: apu.square2Vol = value; break;
+            case 0x4005: apu.square2Sweep = value; break;
+            case 0x4006: apu.square2Lo = value; break;
+            case 0x4007: apu.square2Vol = value; break;
+            case 0x4008: apu.triangleLinear = value; break;
+            case 0x400A: apu.triangleLo = value; break;
+            case 0x400B: apu.triangleHi = value; break;
+            case 0x400C: apu.noiseVol = value; break;
+            case 0x400E: apu.noiseLo = value; break;
+            case 0x400F: apu.noiseHi = value; break;
+            case 0x4010: apu.dmcFrequency = value; break;
+            case 0x4011: apu.dmcRaw = value; break;
+            case 0x4012: apu.dmcStart = value; break;
+            case 0x4013: apu.dmcLength = value; break;
+            case 0x4014: ppu.oamDma = value; break;
+            case 0x4015: apu.channelStatus = value; break;
+            case 0x4016: joy1 = value; break;
+            case 0x4017: joy2 = value; break;
+            default: return;
+        }
     }
     // Cartridge space (logic depends on the mapper)
     // TODO: allow multiple mappers, for now using 000 since its the one in the test case
