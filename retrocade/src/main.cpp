@@ -3,57 +3,78 @@
 typedef unsigned char uint8;
 typedef unsigned int uint32;
 
-static bool running = true;
-static BITMAPINFO bitmapInfo = {};
-static void* backBuffer;
-static int backBufferWidth;
-static int backBufferHeight;
-
-void render(int xOffset, int yOffset)
+struct GDIBackBuffer
 {
-    int pitch = backBufferWidth * 4;
-    uint8* row = (uint8*)backBuffer;
-    for (int y = 0; y < backBufferHeight; ++y)
+    BITMAPINFO info = {};
+    void* memory;
+    int width;
+    int height;
+    int pitch;
+};
+
+struct WindowSize
+{
+    int width;
+    int height;
+};
+
+WindowSize GetWindowSize(HWND window)
+{
+    RECT clientRect;
+    GetClientRect(window, &clientRect);
+
+    WindowSize result;
+    result.width = clientRect.right - clientRect.left;
+    result.height = clientRect.bottom - clientRect.top;
+    return result;
+}
+
+static bool running = true;
+static GDIBackBuffer globalBackBuffer = {};
+
+void render(GDIBackBuffer buffer, int xOffset, int yOffset)
+{
+    uint8* row = (uint8*)buffer.memory;
+    for (int y = 0; y < buffer.height; ++y)
     {
         uint32* pixel = (uint32*)row;
-        for (int x = 0; x < backBufferWidth; ++x)
+        for (int x = 0; x < buffer.width; ++x)
         {
             uint8 b = x + xOffset;
             uint8 g = y + yOffset;
             *pixel++ = (g << 8) | b;
         }
 
-        row += pitch;
+        row += buffer.pitch;
     }
 }
 
-void resizeDIBSection(int width, int height)
+void resizeDIBSection(GDIBackBuffer* buffer, int width, int height)
 {
-    if (backBuffer)
+    if (buffer->memory)
     {
-        VirtualFree(backBuffer, 0, MEM_RELEASE);
+        VirtualFree(buffer->memory, 0, MEM_RELEASE);
     }
 
-    backBufferWidth = width;
-    backBufferHeight = height;
+    buffer->width = width;
+    buffer->height = height;
 
-    bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
-    bitmapInfo.bmiHeader.biWidth = width;
-    bitmapInfo.bmiHeader.biHeight = -height;
-    bitmapInfo.bmiHeader.biPlanes = 1;
-    bitmapInfo.bmiHeader.biBitCount = 32;
+    buffer->info.bmiHeader.biSize = sizeof(buffer->info.bmiHeader);
+    buffer->info.bmiHeader.biWidth = width;
+    buffer->info.bmiHeader.biHeight = -height;
+    buffer->info.bmiHeader.biPlanes = 1;
+    buffer->info.bmiHeader.biBitCount = 32;
 
-    backBuffer = VirtualAlloc(0, 4 * width * height, MEM_COMMIT, PAGE_READWRITE);
+    buffer->memory = VirtualAlloc(0, 4 * width * height, MEM_COMMIT, PAGE_READWRITE);
+    buffer->pitch = buffer->width * 4;
 }
 
-void paintToWindow(HDC deviceContext, RECT* windowRect, int x, int y, int width, int height)
+void paintToWindow(HDC deviceContext, GDIBackBuffer buffer, int windowWidth, int windowHeight)
 {
-    int windowWidth = windowRect->right - windowRect->left;
-    int windowHeight = windowRect->bottom - windowRect->top;
     StretchDIBits(deviceContext,
-        0, 0, backBufferWidth, backBufferHeight,
         0, 0, windowWidth, windowHeight,
-        backBuffer, &bitmapInfo,
+        0, 0, buffer.width, buffer.height,
+        buffer.memory, &buffer.info,
         DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -63,9 +84,7 @@ LRESULT windowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
     {
         case WM_SIZE:
         {
-            RECT clientRect;
-            GetClientRect(window, &clientRect);
-            resizeDIBSection(clientRect.right - clientRect.left, clientRect.bottom - clientRect.top);
+            
         }
         break;
 
@@ -73,11 +92,8 @@ LRESULT windowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             PAINTSTRUCT paint;
             HDC deviceContext = BeginPaint(window, &paint);
-            int width = paint.rcPaint.right - paint.rcPaint.left;
-            int height = paint.rcPaint.bottom - paint.rcPaint.top;
-            RECT clientRect;
-            GetClientRect(window, &clientRect);
-            paintToWindow(deviceContext, &clientRect, paint.rcPaint.left, paint.rcPaint.right, width, height);
+            WindowSize size = GetWindowSize(window);
+            paintToWindow(deviceContext, globalBackBuffer, size.width, size.height);
             EndPaint(window, &paint);
         }
         break;
@@ -123,6 +139,8 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
         return 0;
     }
 
+    resizeDIBSection(&globalBackBuffer, 1280, 720);
+
     int xOffset = 0;
     int yOffset = 0;
     
@@ -140,12 +158,11 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
             DispatchMessageA(&msg);
         }
 
-        render(xOffset, yOffset);
+        render(globalBackBuffer, xOffset, yOffset);
 
         HDC deviceContext = GetDC(window);
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
-        paintToWindow(deviceContext, &clientRect, 0, 0, backBufferWidth, backBufferHeight);
+        WindowSize size = GetWindowSize(window);
+        paintToWindow(deviceContext, globalBackBuffer, size.width, size.height);
         ReleaseDC(window, deviceContext);
 
         ++xOffset;
