@@ -1,7 +1,51 @@
 #include <windows.h>
+#include <xinput.h>
 
 typedef unsigned char uint8;
 typedef unsigned int uint32;
+
+// Dynamic Loading of XInput
+typedef DWORD WINAPI XInputGetStateFn(DWORD dwUserIndex, XINPUT_STATE* pState);
+typedef DWORD WINAPI XInputSetStateFn(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration);
+static XInputGetStateFn* pfnXInputGetState;
+static XInputSetStateFn* pfnXInputSetState;
+#define XInputGetState pfnXInputGetState
+#define XInputSetState pfnXInputSetState
+
+DWORD WINAPI XInputGetStateStub(DWORD dwUserIndex, XINPUT_STATE* pState)
+{
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+DWORD WINAPI XInputSetStateStub(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
+{
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+void LoadXInput()
+{
+    HMODULE xInput = LoadLibraryA("xinput1_3.dll");
+    if (!xInput)
+    {
+        xInput = LoadLibraryA("xinput1_4.dll");
+    }
+
+    if (!xInput)
+    {
+        xInput = LoadLibraryA("xinput9_1_0.dll");
+    }
+
+    if (xInput)
+    {
+        pfnXInputGetState = (XInputGetStateFn*)GetProcAddress(xInput, "XInputGetState");
+        pfnXInputSetState = (XInputSetStateFn*)GetProcAddress(xInput, "XInputSetState");
+    }
+    else
+    {
+        pfnXInputGetState = &XInputGetStateStub;
+        pfnXInputSetState = &XInputSetStateStub;
+    }
+}
 
 struct GDIBackBuffer
 {
@@ -29,7 +73,7 @@ WindowSize GetWindowSize(HWND window)
     return result;
 }
 
-static bool running = true;
+static bool isRunning = true;
 static GDIBackBuffer globalBackBuffer = {};
 
 void render(GDIBackBuffer buffer, int xOffset, int yOffset)
@@ -100,7 +144,7 @@ LRESULT windowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 
         case WM_DESTROY:
         case WM_CLOSE:
-            running = false;
+            isRunning = false;
             break;
 
         default:
@@ -112,12 +156,15 @@ LRESULT windowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 
 int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showCmd)
 {
+    LoadXInput();
+
     WNDCLASSA windowClass = {};
     windowClass.style = CS_HREDRAW|CS_VREDRAW;
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = instance;
     windowClass.hIcon = LoadIcon((HINSTANCE)NULL, IDI_APPLICATION);
     windowClass.lpszClassName = "RetrocadeWndClass";
+    windowClass.hCursor = LoadCursorA(instance, IDC_ARROW);
 
     if (!RegisterClassA(&windowClass))
     {
@@ -126,7 +173,7 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
 
     HWND window = CreateWindowExA(
         0,
-        "RetrocadeWndClass",
+        windowClass.lpszClassName,
         "Retrocade",
         WS_OVERLAPPEDWINDOW|WS_VISIBLE,
         CW_USEDEFAULT, CW_USEDEFAULT,
@@ -144,18 +191,46 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
     int xOffset = 0;
     int yOffset = 0;
     
-    while (running)
+    while (isRunning)
     {
         MSG msg;
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE))
         {
             if (msg.message == WM_QUIT)
             {
-                running = false;
+                isRunning = false;
             }
 
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
+        }
+
+        for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
+        {
+            XINPUT_STATE controllerState;
+            if (XInputGetState(i, &controllerState) == ERROR_SUCCESS)
+            {
+                // connected
+                // TODO: handle packet number
+                XINPUT_GAMEPAD pad = controllerState.Gamepad;
+
+                bool up = pad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
+                bool down = pad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+                bool left = pad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+                bool right = pad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+                bool start = pad.wButtons & XINPUT_GAMEPAD_START;
+                bool back = pad.wButtons & XINPUT_GAMEPAD_BACK;
+                bool leftShoulder = pad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
+                bool rightShoulder = pad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                bool aButton = pad.wButtons & XINPUT_GAMEPAD_A;
+                bool bButton = pad.wButtons & XINPUT_GAMEPAD_B;
+                bool xButton = pad.wButtons & XINPUT_GAMEPAD_X;
+                bool yButton = pad.wButtons & XINPUT_GAMEPAD_Y;
+            }
+            else
+            {
+                // not connected
+            }
         }
 
         render(globalBackBuffer, xOffset, yOffset);

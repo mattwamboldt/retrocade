@@ -8,7 +8,7 @@
 #include "apu.h"
 #include "cpuBus.h"
 
-bool running = true;
+static bool isRunning;
 
 // globals are bad!!! change this later!!!
 static MOS6502 cpu = {};
@@ -35,7 +35,7 @@ void renderMemCell(uint16 address, uint8 val)
     uint8 x = (uint8)(address & 0x000F);
     uint8 y = (address & 0x01F0) >> 4;
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD cursorPos = { 7, 2 };
+    COORD cursorPos = { 9, 3 };
     cursorPos.X += x * 3;
     cursorPos.Y += y;
     SetConsoleCursorPosition(console, cursorPos);
@@ -242,7 +242,8 @@ void printInstruction(uint16 address)
 }
 
 static bool memViewRendered = false;
-static int64 frameElapsed = 1;
+static LARGE_INTEGER frameTime;
+real32 frameElapsed;
 static int64 cpuFreq = 1;
 static int64 cpuGap = 0;
 static int64 instCount = 1;
@@ -252,20 +253,14 @@ static bool traceEnabled = false;
 void drawFps()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD cursorPos = { 100, 3 };
+    COORD cursorPos = { 58, 9 };
     SetConsoleCursorPosition(console, cursorPos);
 
-    int32 msPerFrame = (int32)((1000 * frameElapsed) / cpuFreq);
+    real32 msPerFrame = 1000.0f * frameElapsed;
     if (msPerFrame)
     {
-        int32 framesPerSecond = 1000 / msPerFrame;
-        int64 timePerInstruction = 0;
-        if (instCount)
-        {
-            timePerInstruction = cpuGap / instCount;
-        }
-
-        printf("MS Per Frame = %08d FPS: %d IPS: %lld", msPerFrame, framesPerSecond, timePerInstruction);
+        real32 framesPerSecond = 1000.0f / msPerFrame;
+        printf("MS Per Frame = %08.2f FPS: %.2f IPS: %-8lld", msPerFrame, framesPerSecond, instCount);
     }
 }
 
@@ -274,23 +269,27 @@ bool asciiMode = false;
 void renderMemoryView()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD cursorPos = {};
+    COORD cursorPos = { 2, 1 };
     SetConsoleCursorPosition(console, cursorPos);
 
-    printf("CPU (M)emory\n");
+    printf("CPU (M)emory");
+
+    ++cursorPos.Y;
+    SetConsoleCursorPosition(console, cursorPos);
+
     printf("      ");
     for (int i = 0; i < 16; ++i)
     {
         printf(" %02X", i);
     }
 
-    cursorPos.Y = 2;
+    cursorPos.Y = 3;
     SetConsoleCursorPosition(console, cursorPos);
 
     const int ROWS_TO_DISPLAY = 32;
 
     uint16 address = ((uint16)debugMemPage) << 8;
-    while (cursorPos.Y < ROWS_TO_DISPLAY + 2)
+    while (cursorPos.Y < ROWS_TO_DISPLAY + 3)
     {
         //TODO: do proper console manipulation to put these where I want it
         printf("0x%04X", address);
@@ -323,7 +322,7 @@ void debugView()
     }
 
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD cursorPos = { 56, 0 };
+    COORD cursorPos = { 58, 1 };
     SetConsoleCursorPosition(console, cursorPos);
 
     printf("CPU Registers");
@@ -353,16 +352,14 @@ void debugView()
     SetConsoleCursorPosition(console, cursorPos);
     printf("Current Inst: ");
     printInstruction(cpu.instAddr);
-
-    drawFps();
 }
 
 void readValue()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     COORD cursorPos = {};
-    cursorPos.X = 0;
-    cursorPos.Y = 35;
+    cursorPos.X = 2;
+    cursorPos.Y = 31;
     SetConsoleCursorPosition(console, cursorPos);
     printf("               ");
     SetConsoleCursorPosition(console, cursorPos);
@@ -479,19 +476,82 @@ void gameView()
 void activateRenderMode()
 {
     setConsoleSize(NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, 4, 4);
+    SetConsoleTitleA("ConNessa: Render Mode");
     renderMode = true;
 }
 
 void activateDebugMode()
 {
-    setConsoleSize(160, 40, 8, 16);
+    setConsoleSize(110, 40, 8, 16);
+    SetConsoleTitleA("ConNessa: Debug Mode");
     renderMode = false;
+}
+
+LARGE_INTEGER getClockTime()
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return counter;
+}
+
+real32 getSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
+{
+    int64 elapsed = end.QuadPart - start.QuadPart;
+    return (real32)elapsed / (real32)cpuFreq;
 }
 
 bool singleStepMode = true;
 
+void singleStep()
+{
+    // Do a single cpu and apu step, 3 ppu steps;
+    if (traceEnabled && !cpu.hasHalted())
+    {
+        logInstruction(cpu.instAddr);
+    }
+
+    bool instructionExecuted = cpu.tick();
+    if (instructionExecuted)
+    {
+        ++instCount;
+        if (cpu.hasHalted())
+        {
+            fflush(logFile);
+            singleStepMode = true;
+        }
+    }
+}
+
+void update(real32 secondsPerFrame)
+{
+    if (cpu.hasHalted())
+    {
+        return;
+    }
+
+    // TODO: calculate this rate properly and preserve extra cycles in a variable to run later
+    // cpu and ppu per needed timings, cpu and apu every 12, ppu every 4
+
+    // TODO: There s a note on the wiki that mentions having a hard coded clock rate
+    // "Emulator authors may wish to emulate the NTSC NES/Famicom CPU at 21441960 Hz ((341×262-0.5)×4×60) to ensure a synchronised/stable 60 frames per second."
+    // I don't understand how this works, so for now, I'll just calculate it
+    int32 masterClockHz = 21477272;
+    int32 masterCycles = secondsPerFrame * masterClockHz;
+    for (int i = 0; i < masterCycles / 12; ++i)
+    {
+        singleStep();
+    }
+}
+
 int main(int argc, char *argv[])
 {
+    LARGE_INTEGER counterFrequency;
+    QueryPerformanceFrequency(&counterFrequency);
+    cpuFreq = counterFrequency.QuadPart;
+
+    UINT desiredSchedulerMS = 1;
+    bool useSleep = timeBeginPeriod(desiredSchedulerMS) == TIMERR_NOERROR;
+
     activateDebugMode();
     hideCursor();
 
@@ -504,25 +564,24 @@ int main(int argc, char *argv[])
 
     debugView();
 
-    LARGE_INTEGER counterFrequency;
-    QueryPerformanceFrequency(&counterFrequency);
-    cpuFreq = counterFrequency.QuadPart;
+    real32 framesPerSecond = 30.0f;
+    real32 secondsPerFrame = 1.0f / framesPerSecond;
 
-    LARGE_INTEGER lastCounter;
-    QueryPerformanceCounter(&lastCounter);
-    int64 refreshRate = cpuFreq / 30;
-    LARGE_INTEGER lastRender = lastCounter;
+    frameTime = getClockTime();
+    uint32 frameCount = 0;
+    isRunning = true;
 
     bool stepRequested = false;
-    while (running)
+    while (isRunning)
     {
-        // TODO: kbhit is eating the cpu, only process input once per frame
+        // Input handling
+        // TODO: joypad inputs, may have to switch input processing methods
         if (_kbhit())
         {
             char input = _getch();
             if (input == 'q')
             {
-                running = false;
+                isRunning = false;
             }
 
             if (input == 'd')
@@ -561,49 +620,59 @@ int main(int argc, char *argv[])
                 }
             }
         }
-        
-        // TODO: Process the required number of cycles in a loop rather than once per overall loop
-        if (!singleStepMode || stepRequested)
+
+        if (singleStepMode)
         {
-            if (traceEnabled && !cpu.hasHalted())
+            if (stepRequested)
             {
-                logInstruction(cpu.instAddr);
+                singleStep();
+                stepRequested = false;
             }
-
-            bool instructionExecuted = cpu.tick();
-            ++instCount;
-            if (instructionExecuted && cpu.hasHalted())
-            {
-                fflush(logFile);
-                singleStepMode = true;
-            }
-
-            stepRequested = false;
+        }
+        else
+        {
+            update(secondsPerFrame);
         }
 
-        // TODO: This timing is Garbage, but all I need at the moment is to slow the renderer so the sim can run full force.
-        LARGE_INTEGER preRenderCounter;
-        QueryPerformanceCounter(&preRenderCounter);
-        int64 frameGap = preRenderCounter.QuadPart - lastRender.QuadPart;
-
-        if (frameGap > refreshRate)
+        if (renderMode)
         {
-            if (renderMode)
+            gameView();
+        }
+        else
+        {
+            debugView();
+        }
+
+        frameElapsed = getSecondsElapsed(frameTime, getClockTime());
+        if (frameElapsed < secondsPerFrame)
+        {
+            if (useSleep)
             {
-                gameView();
-            }
-            else
-            {
-                debugView();
+                DWORD sleepMs = (DWORD)(1000.0f * (secondsPerFrame - frameElapsed));
+                if (sleepMs > 0)
+                {
+                    Sleep(sleepMs);
+                }
             }
 
+            while (frameElapsed < secondsPerFrame)
+            {
+                frameElapsed = getSecondsElapsed(frameTime, getClockTime());
+            }
+        }
+        else
+        {
+            OutputDebugStringA("FrameMissed\n");
+        }
+
+        if (!renderMode)
+        {
+            drawFps();
             instCount = 0;
-            cpuGap = 0;
-            frameElapsed = frameGap;
-            lastRender = preRenderCounter;
         }
 
-        // TODO: Sleep on remaining frame time
+        frameTime = getClockTime();
+        ++frameCount;
     }
 
     return 0;
