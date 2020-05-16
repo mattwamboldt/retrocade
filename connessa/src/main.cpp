@@ -8,10 +8,11 @@
 #include "apu.h"
 #include "cpuBus.h"
 
+#include "fceuTrace.h"
+
 // General TODO:
 // - naive printfs and sprintfs are slow as mollasses for this kind of thing
 // paging the memview always causes a frame miss, even at 30fps, so that code needs attention
-// - Similarly the tracing function grinds it to a crawl of 1fps or worse
 // - The instruction set has bugs somewhere. the basic test roms are getting caught in loops
 // It could be the lack of the ppu, but they say these tests don't require it and it got further before the reorg
 // Make a small test suite using the raw functions available, which will
@@ -32,7 +33,7 @@ static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
 
 static bool renderMode = false;
-static bool traceEnabled = true;
+static bool traceEnabled = false;
 static bool asciiMode = false;
 static bool singleStepMode = false;
 
@@ -113,236 +114,15 @@ void showCursor()
     SetConsoleCursorInfo(console, &cursorInfo);
 }
 
-// TODO: This is basically a low rent custom purpose string builder. maybe make a class to use in other places
-char instructionBuffer[32];
-FILE* logFile = 0;
-
-static const char hexValues[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-
-int formatByte(char* dest, uint8 d)
-{
-    *dest++ = hexValues[d & 0x0F];
-    *dest++ = hexValues[(d & 0xF0) >> 4];
-    return 2;
-}
-
-int formatHex(char* dest, uint8 d)
-{
-    *dest++ = '$';
-    formatByte(dest, d);
-    return 3;
-}
-
-int formatAddress(char* dest, uint8 lo, uint8 hi)
-{
-    *dest++ = '$';
-    dest += formatByte(dest, hi);
-    dest += formatByte(dest, lo);
-    return 5;
-}
-
-int formatAddress(char* dest, uint16 address)
-{
-    uint8 lo = address & 0x00FF;
-    uint8 hi = (address & 0xFF00) >> 8;
-    return formatAddress(dest, lo, hi);
-}
-
-int formatString(char* dest, const char* s, uint32 length)
-{
-    memcpy(dest, s, length);
-    return length;
-}
-
-int formatString(char* dest, const char* s)
-{
-    int32 length = strlen(s);
-    return formatString(dest, s, length);
-}
-
-void formatInstruction(uint16 address)
-{
-    uint8 opcode = cpuBus.read(address);
-    uint8 p1 = cpuBus.read(address + 1);
-    uint8 p2 = cpuBus.read(address + 2);
-
-    Operation op = operations[opcode];
-    const char* opCodeName = opCodeNames[op.opCode];
-    int opCodeLength = strlen(opCodeName);
-    char* s = instructionBuffer;
-    memcpy(s, opCodeName, opCodeLength);
-    s += opCodeLength;
-    *s++ = ' ';
-
-    address = cpu.calcAddress(op.addressMode, address, p1, p2);
-
-    switch (op.addressMode)
-    {
-        case Absolute:
-        {
-            s += formatAddress(s, address);
-            if (op.opCode != JMP && op.opCode != JSR)
-            {
-                uint8 result = cpuBus.read(address);
-                s += formatString(s, " = #");
-                s += formatHex(s, result);
-            }
-        }
-        break;
-        case AbsoluteX:
-        {
-            s += formatAddress(s, p1, p2);
-            s += formatString(s, ",X @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case AbsoluteY:
-        {
-            s += formatAddress(s, p1, p2);
-            s += formatString(s, ",Y @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case Immediate:
-            s += formatString(s, " = #");
-            s += formatHex(s, p1);
-            break;
-        case Indirect:
-        case Relative:
-            s += formatAddress(s, address);
-            break;
-        case IndirectX:
-        {
-            *s++ = '(';
-            s += formatHex(s, p1);
-            s += formatString(s, ",X) @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case IndirectY:
-        {
-            *s++ = '(';
-            s += formatHex(s, p1);
-            s += formatString(s, "),Y @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case ZeroPage:
-        {
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case ZeroPageX:
-        {
-            s += formatHex(s, p1);
-            s += formatString(s, ",X @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-        case ZeroPageY:
-        {
-            s += formatHex(s, p1);
-            s += formatString(s, ",Y @ ");
-            s += formatAddress(s, address);
-
-            uint8 result = cpuBus.read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
-        }
-        break;
-    }
-
-    *s = 0;
-}
-
-void logInstruction(uint16 address)
-{
-    formatInstruction(address);
-    if (!logFile)
-    {
-        logFile = fopen("data/6502.log", "w");
-    }
-
-    uint8 opcode = cpuBus.read(address);
-    uint8 p1 = cpuBus.read(address + 1);
-    uint8 p2 = cpuBus.read(address + 2);
-    
-    Operation op = operations[opcode];
-
-    char hexFormAddress[20] = {};
-    switch (op.addressMode)
-    {
-    case Absolute:
-    case AbsoluteX:
-    case AbsoluteY:
-    case Indirect:
-        sprintf(hexFormAddress, "$%04X:%02X %02X %02X", address, opcode, p1, p2);
-        break;
-    case Immediate:
-    case IndirectX:
-    case IndirectY:
-    case Relative:
-    case ZeroPage:
-    case ZeroPageX:
-    case ZeroPageY:
-        sprintf(hexFormAddress, "$%04X:%02X %02X", address, opcode, p1);
-        break;
-    default:
-        sprintf(hexFormAddress, "$%04X:%02X", address, opcode);
-    }
-
-    char registerPrintout[32] = {};
-    sprintf(registerPrintout, "A:%02X X:%02X Y:%02X S:%02X P:nvubdizc",
-        cpu.accumulator, cpu.x, cpu.y, cpu.stack);
-
-    if (cpu.isFlagSet(STATUS_NEGATIVE)) registerPrintout[22] = 'N';
-    if (cpu.isFlagSet(STATUS_OVERFLOW)) registerPrintout[23] = 'V';
-    if (cpu.isFlagSet(0b00100000)) registerPrintout[24] = 'U';
-    if (cpu.isFlagSet(0b00010000)) registerPrintout[25] = 'B';
-    if (cpu.isFlagSet(STATUS_DECIMAL)) registerPrintout[26] = 'D';
-    if (cpu.isFlagSet(STATUS_INT_DISABLE)) registerPrintout[27] = 'I';
-    if (cpu.isFlagSet(STATUS_ZERO)) registerPrintout[28] = 'Z';
-    if (cpu.isFlagSet(STATUS_CARRY)) registerPrintout[29] = 'C';
-
-    fprintf(logFile, "%-15s %-27s%s\n", hexFormAddress, instructionBuffer, registerPrintout);
-}
-
-void printInstruction(uint16 address, uint8 opcode, uint8 p1, uint8 p2)
-{
-    formatInstruction(address);
-    printf("0x%04X %-30s", address, instructionBuffer);
-}
-
 void printInstruction(uint16 address)
 {
     uint8 opcode = cpuBus.read(address);
     uint8 p1 = cpuBus.read(address + 1);
     uint8 p2 = cpuBus.read(address + 2);
-    printInstruction(address, opcode, p1, p2);
+    
+    char instructionBuffer[32];
+    formatInstruction(instructionBuffer, address, &cpu, &cpuBus);
+    printf("0x%04X %-30s", address, instructionBuffer);
 }
 
 void drawFps()
@@ -596,9 +376,9 @@ real32 getSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
 void singleStep()
 {
     // Do a single cpu and apu step, 3 ppu steps;
-    if (traceEnabled && !cpu.hasHalted())
+    if (traceEnabled && !cpu.hasHalted() && !cpu.isExecuting())
     {
-        logInstruction(cpu.instAddr);
+        logInstruction("data/6502.log", cpu.instAddr, &cpu, &cpuBus);
     }
 
     bool instructionExecuted = cpu.tick();
@@ -607,7 +387,7 @@ void singleStep()
         ++instCount;
         if (cpu.hasHalted())
         {
-            fflush(logFile);
+            flushLog();
             singleStepMode = true;
         }
     }
@@ -627,7 +407,7 @@ void update(real32 secondsPerFrame)
     // "Emulator authors may wish to emulate the NTSC NES/Famicom CPU at 21441960 Hz ((341×262-0.5)×4×60) to ensure a synchronised/stable 60 frames per second."
     // I don't understand how this works, so for now, I'll just calculate it
     int32 masterClockHz = 21477272;
-    int32 masterCycles = secondsPerFrame * masterClockHz;
+    int32 masterCycles = (int32)(secondsPerFrame * masterClockHz);
     for (int i = 0; i < masterCycles / 12; ++i)
     {
         singleStep();
@@ -717,6 +497,11 @@ int main(int argc, char *argv[])
             if (stepRequested)
             {
                 singleStep();
+                while (cpu.isExecuting())
+                {
+                    cpu.tick();
+                }
+
                 stepRequested = false;
             }
         }

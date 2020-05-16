@@ -148,6 +148,7 @@
     <ClCompile Include="src\6502.cpp" />
     <ClCompile Include="src\cartridge.cpp" />
     <ClCompile Include="src\cpuBus.cpp" />
+    <ClCompile Include="src\fceuTrace.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\ppuBus.cpp" />
   </ItemGroup>
@@ -158,6 +159,7 @@
     <ClInclude Include="src\cartridge.h" />
     <ClInclude Include="src\common.h" />
     <ClInclude Include="src\cpuBus.h" />
+    <ClInclude Include="src\fceuTrace.h" />
     <ClInclude Include="src\ppu.h" />
     <ClInclude Include="src\ppuBus.h" />
   </ItemGroup>
