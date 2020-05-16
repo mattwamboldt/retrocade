@@ -15,8 +15,6 @@ bool MOS6502::tick()
         return false;
     }
 
-    // TODO: for now not worrying about cycle accuracy
-    // but also avoiding writing myself in a corner.
     if (waitCycles > 0)
     {
         --waitCycles;
@@ -34,6 +32,7 @@ bool MOS6502::tick()
     {
         loadOperands();
         executeInstruction();
+        waitCycles = op.cycleCount - 1; // exclude the current cycle
     }
 
     instAddr = pc;
