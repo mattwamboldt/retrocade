@@ -8,6 +8,20 @@
 #include "apu.h"
 #include "cpuBus.h"
 
+// General TODO:
+// - naive printfs and sprintfs are slow as mollasses for this kind of thing
+// paging the memview always causes a frame miss, even at 30fps, so that code needs attention
+// - Similarly the tracing function grinds it to a crawl of 1fps or worse
+// - The instruction set has bugs somewhere. the basic test roms are getting caught in loops
+// It could be the lack of the ppu, but they say these tests don't require it and it got further before the reorg
+// Make a small test suite using the raw functions available, which will
+// mean pulling the globals below into a shared space
+
+// Start on the ppu, may help with the other problems which means testing
+// rendering mode at speed which will have its own console issues.
+// May drive need to port/pull into retrocade proper, but gonna try
+// to console as long as I can, easier to think about/iterate on
+
 static bool isRunning;
 
 // globals are bad!!! change this later!!!
