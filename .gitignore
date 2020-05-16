@@ -34,3 +34,5 @@
 bin/
 obj/
 .vs/
+
+*.log

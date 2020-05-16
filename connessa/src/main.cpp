@@ -32,7 +32,18 @@ static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
 
 static bool renderMode = false;
+static bool traceEnabled = true;
+static bool asciiMode = false;
+static bool singleStepMode = false;
+
 static uint8 debugMemPage;
+static bool memViewRendered = false;
+
+static LARGE_INTEGER frameTime;
+real32 frameElapsed;
+static int64 cpuFreq = 1;
+static int64 cpuGap = 0;
+static int64 instCount = 1;
 
 void renderMemCell(uint16 address, uint8 val)
 {
@@ -102,8 +113,52 @@ void showCursor()
     SetConsoleCursorInfo(console, &cursorInfo);
 }
 
+// TODO: This is basically a low rent custom purpose string builder. maybe make a class to use in other places
 char instructionBuffer[32];
 FILE* logFile = 0;
+
+static const char hexValues[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+
+int formatByte(char* dest, uint8 d)
+{
+    *dest++ = hexValues[d & 0x0F];
+    *dest++ = hexValues[(d & 0xF0) >> 4];
+    return 2;
+}
+
+int formatHex(char* dest, uint8 d)
+{
+    *dest++ = '$';
+    formatByte(dest, d);
+    return 3;
+}
+
+int formatAddress(char* dest, uint8 lo, uint8 hi)
+{
+    *dest++ = '$';
+    dest += formatByte(dest, hi);
+    dest += formatByte(dest, lo);
+    return 5;
+}
+
+int formatAddress(char* dest, uint16 address)
+{
+    uint8 lo = address & 0x00FF;
+    uint8 hi = (address & 0xFF00) >> 8;
+    return formatAddress(dest, lo, hi);
+}
+
+int formatString(char* dest, const char* s, uint32 length)
+{
+    memcpy(dest, s, length);
+    return length;
+}
+
+int formatString(char* dest, const char* s)
+{
+    int32 length = strlen(s);
+    return formatString(dest, s, length);
+}
 
 void formatInstruction(uint16 address)
 {
@@ -112,9 +167,12 @@ void formatInstruction(uint16 address)
     uint8 p2 = cpuBus.read(address + 2);
 
     Operation op = operations[opcode];
+    const char* opCodeName = opCodeNames[op.opCode];
+    int opCodeLength = strlen(opCodeName);
     char* s = instructionBuffer;
-    sprintf(s, "%s", opCodeNames[op.opCode]);
-    s += strlen(s);
+    memcpy(s, opCodeName, opCodeLength);
+    s += opCodeLength;
+    *s++ = ' ';
 
     address = cpu.calcAddress(op.addressMode, address, p1, p2);
 
@@ -122,71 +180,103 @@ void formatInstruction(uint16 address)
     {
         case Absolute:
         {
-            if (op.opCode == JMP || op.opCode == JSR)
-            {
-                sprintf(s, " $%04X", address);
-            }
-            else
+            s += formatAddress(s, address);
+            if (op.opCode != JMP && op.opCode != JSR)
             {
                 uint8 result = cpuBus.read(address);
-                sprintf(s, " $%04X = #$%02X", address, result);
+                s += formatString(s, " = #");
+                s += formatHex(s, result);
             }
         }
         break;
         case AbsoluteX:
         {
+            s += formatAddress(s, p1, p2);
+            s += formatString(s, ",X @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " $%02X%02X,X @ $%04X = #$%02X", p2, p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
         case AbsoluteY:
         {
+            s += formatAddress(s, p1, p2);
+            s += formatString(s, ",Y @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " $%02X%02X,Y @ $%04X = #$%02X", p2, p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
         case Immediate:
-            sprintf(s, " #$%02X", p1);
+            s += formatString(s, " = #");
+            s += formatHex(s, p1);
             break;
         case Indirect:
-        {
-            sprintf(s, " $%04X", address);
-        }
-        break;
+        case Relative:
+            s += formatAddress(s, address);
+            break;
         case IndirectX:
         {
+            *s++ = '(';
+            s += formatHex(s, p1);
+            s += formatString(s, ",X) @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " ($%02X,X) @ $%04X = #$%02X", p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
         case IndirectY:
         {
+            *s++ = '(';
+            s += formatHex(s, p1);
+            s += formatString(s, "),Y @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " ($%02X),Y @ $%04X = #$%02X", p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
-        case Relative:
-            sprintf(s, " $%04X", address);
-            break;
         case ZeroPage:
         {
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " $%04X = #$%02X", address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
         case ZeroPageX:
         {
+            s += formatHex(s, p1);
+            s += formatString(s, ",X @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " $%02X,X @ $%04X = #$%02X", p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
         case ZeroPageY:
         {
+            s += formatHex(s, p1);
+            s += formatString(s, ",Y @ ");
+            s += formatAddress(s, address);
+
             uint8 result = cpuBus.read(address);
-            sprintf(s, " $%02X,Y @ $%04X = #$%02X", p1, address, result);
+            s += formatString(s, " = #");
+            s += formatHex(s, result);
         }
         break;
     }
+
+    *s = 0;
 }
 
 void logInstruction(uint16 address)
@@ -194,7 +284,7 @@ void logInstruction(uint16 address)
     formatInstruction(address);
     if (!logFile)
     {
-        logFile = fopen("data/log.txt", "w");
+        logFile = fopen("data/6502.log", "w");
     }
 
     uint8 opcode = cpuBus.read(address);
@@ -255,15 +345,6 @@ void printInstruction(uint16 address)
     printInstruction(address, opcode, p1, p2);
 }
 
-static bool memViewRendered = false;
-static LARGE_INTEGER frameTime;
-real32 frameElapsed;
-static int64 cpuFreq = 1;
-static int64 cpuGap = 0;
-static int64 instCount = 1;
-
-static bool traceEnabled = false;
-
 void drawFps()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -277,8 +358,6 @@ void drawFps()
         printf("MS Per Frame = %08.2f FPS: %.2f IPS: %-8lld", msPerFrame, framesPerSecond, instCount);
     }
 }
-
-bool asciiMode = false;
 
 void renderMemoryView()
 {
@@ -513,8 +592,6 @@ real32 getSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
     int64 elapsed = end.QuadPart - start.QuadPart;
     return (real32)elapsed / (real32)cpuFreq;
 }
-
-bool singleStepMode = true;
 
 void singleStep()
 {
