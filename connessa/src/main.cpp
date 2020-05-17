@@ -8,7 +8,7 @@
 #include "apu.h"
 #include "cpuBus.h"
 
-#include "fceuTrace.h"
+#include "cpuTrace.h"
 
 // General TODO:
 // - naive printfs and sprintfs are slow as mollasses for this kind of thing

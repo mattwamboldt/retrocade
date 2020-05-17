@@ -1,4 +1,4 @@
-#include "fceuTrace.h"
+#include "cpuTrace.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -51,8 +51,7 @@ int formatString(char* dest, const char* s, uint32 length)
 
 int formatString(char* dest, const char* s)
 {
-    int32 length = strlen(s);
-    return formatString(dest, s, length);
+    return formatString(dest, s, (uint32)strlen(s));
 }
 
 int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
@@ -63,7 +62,7 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
 
     Operation op = operations[opcode];
     const char* opCodeName = opCodeNames[op.opCode];
-    int opCodeLength = strlen(opCodeName);
+    int32 opCodeLength = (int32)strlen(opCodeName);
     char* s = dest;
     memcpy(s, opCodeName, opCodeLength);
     s += opCodeLength;
@@ -172,7 +171,7 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
     }
 
     *s = 0;
-    return s - dest;
+    return (int32)(s - dest);
 }
 
 int32 formatHexInstruction(char* dest, uint16 address, uint8 opcode, AddressingMode addressMode, uint8 p1, uint8 p2)
@@ -205,7 +204,7 @@ int32 formatHexInstruction(char* dest, uint16 address, uint8 opcode, AddressingM
         break;
     }
 
-    return dest - start;
+    return (int32)(dest - start);
 }
 
 int formatRegisters(char* dest, MOS6502* cpu)

@@ -33,7 +33,7 @@
     <ClCompile Include="src\ppuBus.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\fceuTrace.cpp">
+    <ClCompile Include="src\cpuTrace.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -62,7 +62,7 @@
     <ClInclude Include="src\ppuBus.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\fceuTrace.h">
+    <ClInclude Include="src\cpuTrace.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
