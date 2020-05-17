@@ -3,8 +3,8 @@
 void MOS6502::reset()
 {
     isHalted = false;
-    status = 0;
-    stack = 0xff;
+    status = 0b00100100;
+    stack = 0xFD;
     instAddr = pc = readWord(0xFFFC);
 }
 
@@ -124,7 +124,7 @@ void MOS6502::branchOverflowSet(uint8 data)
 
 void MOS6502::branchOverflowClear(uint8 data)
 {
-    jumpOnFlagClear(STATUS_NEGATIVE, data);
+    jumpOnFlagClear(STATUS_OVERFLOW, data);
 }
 
 void MOS6502::bitTest(uint8 data)
@@ -353,13 +353,83 @@ void MOS6502::transferXtoA()
 void MOS6502::transferXtoS()
 {
     stack = x;
-    updateNZ(stack);
 }
 
 void MOS6502::transferYtoA()
 {
     accumulator = y;
     updateNZ(accumulator);
+}
+
+void MOS6502::alr(uint8 data)
+{
+    andA(data);
+    shiftRight(data);
+}
+
+void MOS6502::anc(uint8 data)
+{
+    andA(data);
+    clearCarry();
+    status |= (status & STATUS_NEGATIVE) >> 7;
+}
+
+void MOS6502::arr(uint8 data)
+{
+    // Similar to AND #i then ROR A, except sets the flags differently. N and Z are normal, but C is bit 6 and V is bit 6 xor bit 5
+}
+
+void MOS6502::axs(uint8 data)
+{
+// "Sets X to {(A AND X) - #value without borrow}, and updates NZC." how?
+}
+
+void MOS6502::lax(uint8 data)
+{
+    loadA(data);
+    transferAtoX();
+}
+
+uint8 MOS6502::dcp(uint8 data)
+{
+    data = decrement(data);
+    compareA(data);
+    return data;
+}
+
+uint8 MOS6502::isc(uint8 data)
+{
+    data = increment(data);
+    subtractWithCarry(data);
+    return data;
+}
+
+uint8 MOS6502::rla(uint8 data)
+{
+    data = rotateLeft(data);
+    andA(data);
+    return data;
+}
+
+uint8 MOS6502::rra(uint8 data)
+{
+    data = rotateRight(data);
+    addWithCarry(data);
+    return data;
+}
+
+uint8 MOS6502::slo(uint8 data)
+{
+    data = shiftLeft(data);
+    orA(data);
+    return data;
+}
+
+uint8 MOS6502::sre(uint8 data)
+{
+    data = shiftRight(data);
+    exclusiveOrA(data);
+    return data;
 }
 
 uint16 MOS6502::calcAddress(AddressingMode addressMode, uint16 address, uint8 a, uint8 b)
@@ -376,16 +446,24 @@ uint16 MOS6502::calcAddress(AddressingMode addressMode, uint16 address, uint8 a,
             return y + ((uint16)b << 8 | a);
 
         case Indirect:
-            return bus->read((uint16)b << 8 | a);
-
+        {
+            uint16 lo = bus->read((uint16)b << 8 | a);
+            uint16 hi = bus->read((uint16)b << 8 | (uint8)(a + 1));
+            return ((uint16)hi << 8) + lo;
+        }
         case IndirectX:
-            return readWord(a + x);
-
+        {
+            uint16 lo = bus->read((uint8)(a + x));
+            uint16 hi = bus->read((uint8)(a + x + 1));
+            return (hi << 8) + lo;
+        }
         case IndirectY:
         {
-            uint16 lo = bus->read(a) + (uint16)y;
-            uint16 hi = bus->read(a + 1);
-            return (hi << 8) + lo;
+            uint8 zpReadLo = bus->read(a);
+            uint8 zpReadHi = bus->read((uint8)(a + 1));
+
+            uint16 lo = zpReadLo + (uint16)y;
+            return ((uint16)zpReadHi << 8) + lo;
         }
         case Relative:
             return (address + 2) + (int8)a;
@@ -394,10 +472,10 @@ uint16 MOS6502::calcAddress(AddressingMode addressMode, uint16 address, uint8 a,
             return a;
 
         case ZeroPageX:
-            return a + x;
+            return (uint8)(a + x);
 
         case ZeroPageY:
-            return a + y;
+            return (uint8)(a + y);
     }
 
     return 0;
@@ -439,15 +517,22 @@ bool MOS6502::requireRead(uint8 opCode)
     switch (opCode)
     {
         case ADC:
+        case ALR:
+        case ANC:
         case AND:
+        case ARR:
         case ASL:
+        case AXS:
         case BIT:
         case CMP:
         case CPX:
         case CPY:
+        case DCP:
         case DEC:
         case EOR:
         case INC:
+        case ISC:
+        case LAX:
         case LDA:
         case LDX:
         case LDY:
@@ -455,7 +540,12 @@ bool MOS6502::requireRead(uint8 opCode)
         case ORA:
         case ROL:
         case ROR:
+        case RLA:
+        case RRA:
+        case SAX:
         case SBC:
+        case SLO:
+        case SRE:
             return true;
     }
 
@@ -473,13 +563,17 @@ void MOS6502::executeInstruction()
     switch (op.opCode)
     {
         case ADC: addWithCarry(tempData); break;
+        case ALR: alr(tempData); break;
+        case ANC: anc(tempData); break;
         case AND: andA(tempData); break;
+        case ARR: arr(tempData); break;
         case ASL:
         {
             tempData = shiftLeft(tempData);
             writeData(op.addressMode, tempData);
         }
         break;
+        case AXS: axs(tempData); break;
         case BCC: branchCarryClear(p1); break;
         case BCS: branchCarrySet(p1); break;
         case BEQ: branchEqual(p1); break;
@@ -497,6 +591,12 @@ void MOS6502::executeInstruction()
         case CMP: compareA(tempData); break;
         case CPX: compareX(tempData); break;
         case CPY: compareY(tempData); break;
+        case DCP:
+        {
+            tempData = dcp(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
         case DEC:
         {
             tempData = decrement(tempData);
@@ -514,8 +614,15 @@ void MOS6502::executeInstruction()
         break;
         case INX: incrementX(); break;
         case INY: incrementY(); break;
+        case ISC:
+        {
+            tempData = isc(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
         case JMP: jump(calcAddress(op.addressMode)); break;
         case JSR: jumpSubroutine(calcAddress(op.addressMode)); break;
+        case LAX: lax(tempData); break;
         case LDA: loadA(tempData); break;
         case LDX: loadX(tempData); break;
         case LDY: loadY(tempData); break;
@@ -530,6 +637,18 @@ void MOS6502::executeInstruction()
         case PHP: pushStatus(); break;
         case PLA: pullA(); break;
         case PLP: pullStatus(); break;
+        case RLA:
+        {
+            tempData = rla(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
+        case RRA:
+        {
+            tempData = rra(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
         case ROL:
         {
             tempData = rotateLeft(tempData);
@@ -548,6 +667,19 @@ void MOS6502::executeInstruction()
         case SEC: setCarry(); break;
         case SED: setDecimal(); break;
         case SEI: setInteruptDisable(); break;
+        case SLO:
+        {
+            tempData = slo(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
+        case SRE:
+        {
+            tempData = sre(tempData);
+            writeData(op.addressMode, tempData);
+        }
+        break;
+        case SAX: writeData(op.addressMode, accumulator & x); break;
         case STA: writeData(op.addressMode, accumulator); break;
         case STX: writeData(op.addressMode, x); break;
         case STY: writeData(op.addressMode, y); break;
@@ -585,14 +717,13 @@ void MOS6502::updateNZ(uint8 val)
 
 void MOS6502::compare(uint8 a, uint8 b)
 {
-    uint8 result = a - b;
-    status &= 0b01111100;
-    if ((uint8)result >= 0)
+    clearFlags(STATUS_NEGATIVE | STATUS_ZERO | STATUS_CARRY);
+    if (a >= b)
     {
-        status |= 0b00000011;
+        setFlags(STATUS_CARRY);
     }
 
-    updateNZ(result);
+    updateNZ(a - b);
 }
 
 void MOS6502::jumpOnFlagSet(uint8 flag, uint8 offset)

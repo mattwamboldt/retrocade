@@ -40,7 +40,7 @@ int formatAddress(char* dest, uint8 lo, uint8 hi)
 int formatAddress(char* dest, uint16 address)
 {
     *dest++ = '$';
-    return formatWord(dest, address);
+    return formatWord(dest, address) + 1;
 }
 
 int formatString(char* dest, const char* s, uint32 length)

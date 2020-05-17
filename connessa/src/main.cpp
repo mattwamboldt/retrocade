@@ -33,7 +33,7 @@ static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
 
 static bool renderMode = false;
-static bool traceEnabled = false;
+static bool traceEnabled = true;
 static bool asciiMode = false;
 static bool singleStepMode = false;
 
@@ -429,9 +429,10 @@ int main(int argc, char *argv[])
     cpu.connect(&cpuBus);
     cpuBus.connect(&ppu, &apu, &cartridge);
     cpuBus.addWriteCallback(renderMemCell);
-    cartridge.load("data/01-basics.nes");
+    cartridge.load("data/nestest.nes");
 
     cpu.reset();
+    cpu.pc = cpu.instAddr = 0xC000;
 
     debugView();
 
@@ -489,6 +490,11 @@ int main(int argc, char *argv[])
                 {
                     activateRenderMode();
                 }
+            }
+
+            if (input == '`')
+            {
+                cpu.reset();
             }
         }
 
