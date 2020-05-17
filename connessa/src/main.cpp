@@ -33,11 +33,11 @@ static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
 
 static bool renderMode = false;
-static bool traceEnabled = true;
+static bool traceEnabled = false;
 static bool asciiMode = false;
 static bool singleStepMode = false;
 
-static uint8 debugMemPage;
+static uint8 debugMemPage = 0x60;
 static bool memViewRendered = false;
 
 static LARGE_INTEGER frameTime;
@@ -61,11 +61,18 @@ void renderMemCell(uint16 address, uint8 val)
     uint8 x = (uint8)(address & 0x000F);
     uint8 y = (address & 0x01F0) >> 4;
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD cursorPos = { 9, 3 };
+    COORD cursorPos = { 8, 3 };
     cursorPos.X += x * 3;
     cursorPos.Y += y;
     SetConsoleCursorPosition(console, cursorPos);
-    printf("%02X", val);
+    if (!asciiMode || !isprint(val))
+    {
+        printf(" %02X", val);
+    }
+    else
+    {
+        printf("  %c", (char)val);
+    }
 }
 
 void setConsoleSize(int16 cols, int16 rows, int charWidth, int charHeight)
@@ -429,10 +436,9 @@ int main(int argc, char *argv[])
     cpu.connect(&cpuBus);
     cpuBus.connect(&ppu, &apu, &cartridge);
     cpuBus.addWriteCallback(renderMemCell);
-    cartridge.load("data/nestest.nes");
+    cartridge.load("data/all_instrs.nes");
 
     cpu.reset();
-    cpu.pc = cpu.instAddr = 0xC000;
 
     debugView();
 
