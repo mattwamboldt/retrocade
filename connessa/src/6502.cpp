@@ -292,7 +292,7 @@ void MOS6502::pullA()
 
 void MOS6502::pullStatus()
 {
-    status = pull();
+    status = (pull() & 0b11101111) | 0b00100000;
 }
 
 uint8 MOS6502::rotateLeft(uint8 data)
@@ -317,7 +317,7 @@ uint8 MOS6502::rotateRight(uint8 data)
 
 void MOS6502::returnIntertupt()
 {
-    status = pull();
+    pullStatus();
     pc = pullWord();
 }
 

@@ -64,6 +64,7 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
     const char* opCodeName = opCodeNames[op.opCode];
     int32 opCodeLength = (int32)strlen(opCodeName);
     char* s = dest;
+    *s++ = ' ';
     memcpy(s, opCodeName, opCodeLength);
     s += opCodeLength;
     *s++ = ' ';
@@ -78,8 +79,8 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
             if (op.opCode != JMP && op.opCode != JSR)
             {
                 uint8 result = bus->read(address);
-                s += formatString(s, " = #");
-                s += formatHex(s, result);
+                s += formatString(s, " = ");
+                s += formatByte(s, result);
             }
         }
         break;
@@ -87,22 +88,22 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
         {
             s += formatAddress(s, p1, p2);
             s += formatString(s, ",X @ ");
-            s += formatAddress(s, address);
+            s += formatWord(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case AbsoluteY:
         {
             s += formatAddress(s, p1, p2);
             s += formatString(s, ",Y @ ");
-            s += formatAddress(s, address);
+            s += formatWord(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case Immediate:
@@ -110,6 +111,11 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
             s += formatHex(s, p1);
             break;
         case Indirect:
+            *s++ = '(';
+            s += formatAddress(s, p1, p2);
+            s += formatString(s, ") = ");
+            s += formatWord(s, address);
+            break;
         case Relative:
             s += formatAddress(s, address);
             break;
@@ -118,56 +124,63 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
             *s++ = '(';
             s += formatHex(s, p1);
             s += formatString(s, ",X) @ ");
-            s += formatAddress(s, address);
+            s += formatByte(s, (uint8)(p1 + cpu->x));
+            s += formatString(s, " = ");
+            s += formatWord(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case IndirectY:
         {
             *s++ = '(';
             s += formatHex(s, p1);
-            s += formatString(s, "),Y @ ");
-            s += formatAddress(s, address);
+            s += formatString(s, "),Y = ");
+            s += formatWord(s, address);
+            s += formatString(s, " @ ");
+            s += formatWord(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case ZeroPage:
         {
-            s += formatAddress(s, address);
+            s += formatHex(s, p1);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case ZeroPageX:
         {
             s += formatHex(s, p1);
             s += formatString(s, ",X @ ");
-            s += formatAddress(s, address);
+            s += formatByte(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
         case ZeroPageY:
         {
             s += formatHex(s, p1);
             s += formatString(s, ",Y @ ");
-            s += formatAddress(s, address);
+            s += formatByte(s, address);
 
             uint8 result = bus->read(address);
-            s += formatString(s, " = #");
-            s += formatHex(s, result);
+            s += formatString(s, " = ");
+            s += formatByte(s, result);
         }
         break;
+        case Accumulator:
+            *s++ = 'A';
+            break;
     }
 
     *s = 0;
@@ -177,8 +190,9 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
 int32 formatHexInstruction(char* dest, uint16 address, uint8 opcode, AddressingMode addressMode, uint8 p1, uint8 p2)
 {
     char* start = dest;
-    dest += formatAddress(dest, address);
-    *dest++ = ':';
+    dest += formatWord(dest, address);
+    *dest++ = ' ';
+    *dest++ = ' ';
     dest += formatByte(dest, opcode);
 
     switch (addressMode)
@@ -207,7 +221,7 @@ int32 formatHexInstruction(char* dest, uint16 address, uint8 opcode, AddressingM
     return (int32)(dest - start);
 }
 
-int formatRegisters(char* dest, MOS6502* cpu)
+int formatRegistersFCEU(char* dest, MOS6502* cpu)
 {
     memcpy(dest, "A:00 X:00 Y:00 S:00 P:nvubdizc\n", 32);
 
@@ -226,6 +240,19 @@ int formatRegisters(char* dest, MOS6502* cpu)
     if (cpu->isFlagSet(STATUS_CARRY)) dest[29] = 'C';
 
     return 32;
+}
+
+int formatRegistersNesTest(char* dest, MOS6502* cpu)
+{
+    memcpy(dest, "A:00 X:00 Y:00 P:00 SP:00\n", 27);
+
+    formatByte(dest + 2, cpu->accumulator);
+    formatByte(dest + 7, cpu->x);
+    formatByte(dest + 12, cpu->y);
+    formatByte(dest + 17, cpu->status);
+    formatByte(dest + 23, cpu->stack);
+
+    return 27;
 }
 
 // makes no assumptions buffer must be long enough
@@ -253,9 +280,9 @@ void logInstruction(const char* filename, uint16 address, MOS6502* cpu, IBus* cp
 
     Operation op = operations[opcode];
 
-    const int32 HEX_WIDTH = 16;
-    const int32 INST_WIDTH = 27;
-    const int32 REG_WIDTH = 32;
+    const int32 HEX_WIDTH = 15;
+    const int32 INST_WIDTH = 33;
+    const int32 REG_WIDTH = 27;
 
     char line[HEX_WIDTH + INST_WIDTH + REG_WIDTH] = {};
     char* columnStart = line;
@@ -267,7 +294,7 @@ void logInstruction(const char* filename, uint16 address, MOS6502* cpu, IBus* cp
     padRight(columnStart, instLength, INST_WIDTH);
     columnStart += INST_WIDTH;
 
-    formatRegisters(columnStart, cpu);
+    formatRegistersNesTest(columnStart, cpu);
     fputs(line, logFile);
 }
 
