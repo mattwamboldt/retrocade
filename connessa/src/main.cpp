@@ -7,16 +7,13 @@
 #include "ppu.h"
 #include "apu.h"
 #include "cpuBus.h"
+#include "ppuBus.h"
 
 #include "cpuTrace.h"
 
 // General TODO:
 // - naive printfs and sprintfs are slow as mollasses for this kind of thing
 // paging the memview always causes a frame miss, even at 30fps, so that code needs attention
-// - The instruction set has bugs somewhere. the basic test roms are getting caught in loops
-// It could be the lack of the ppu, but they say these tests don't require it and it got further before the reorg
-// Make a small test suite using the raw functions available, which will
-// mean pulling the globals below into a shared space
 
 // Start on the ppu, may help with the other problems which means testing
 // rendering mode at speed which will have its own console issues.
@@ -28,6 +25,7 @@ static bool isRunning;
 // globals are bad!!! change this later!!!
 static MOS6502 cpu = {};
 static PPU ppu = {};
+static PPUBus ppuBus = {};
 static APU apu = {};
 static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
@@ -256,16 +254,6 @@ void readValue()
     printf("Result: %02X   ", cpuBus.read(address));
 }
 
-#define NES_SCREEN_HEIGHT 240
-#define NES_SCREEN_WIDTH 256
-
-static uint32 ppuCycle = 0;
-
-static uint8 nametableByte;
-static uint8 attributetableByte;
-static uint8 patternLo;
-static uint8 patternHi;
-
 static CHAR_INFO palette[0x4F] = {
     { '#', 0 },
     { '#', 0x10 },
@@ -345,12 +333,17 @@ void drawRect(int paletteIndex, int x, int y, int width, int height)
 
 void gameView()
 {
-    drawRect(5, 0, 0, 16, 16);
-    drawRect(10, 100, 100, 25, 25);
-
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     SMALL_RECT location = {0, 0, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT };
     WriteConsoleOutputA(console, pixels, { NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT }, { 0, 0 }, &location);
+}
+
+void flushScreenBuffer()
+{
+    for (int i = 0; i < NES_SCREEN_WIDTH * NES_SCREEN_HEIGHT; ++i)
+    {
+        pixels[i] = palette[ppu.screenBuffer[i]];
+    }
 }
 
 void activateRenderMode()
@@ -415,9 +408,17 @@ void update(real32 secondsPerFrame)
     // I don't understand how this works, so for now, I'll just calculate it
     int32 masterClockHz = 21477272;
     int32 masterCycles = (int32)(secondsPerFrame * masterClockHz);
-    for (int i = 0; i < masterCycles / 12; ++i)
+    for (int i = 0; i < masterCycles; ++i)
     {
-        singleStep();
+        if (i % 12 == 0)
+        {
+            singleStep();
+        }
+
+        if (i % 4 == 0)
+        {
+            ppu.tick();
+        }
     }
 }
 
@@ -430,17 +431,21 @@ int main(int argc, char *argv[])
     UINT desiredSchedulerMS = 1;
     bool useSleep = timeBeginPeriod(desiredSchedulerMS) == TIMERR_NOERROR;
 
-    activateDebugMode();
+    activateRenderMode();
     hideCursor();
 
     cpu.connect(&cpuBus);
+    ppu.connect(&ppuBus);
     cpuBus.connect(&ppu, &apu, &cartridge);
     cpuBus.addWriteCallback(renderMemCell);
+    ppuBus.connect(&ppu, &cartridge);
     cartridge.load("data/all_instrs.nes");
-
     cpu.reset();
 
-    debugView();
+    
+    ppu.renderPatternTable();
+    flushScreenBuffer();
+    renderMode = true;
 
     real32 framesPerSecond = 30.0f;
     real32 secondsPerFrame = 1.0f / framesPerSecond;

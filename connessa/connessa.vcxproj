@@ -150,6 +150,7 @@
     <ClCompile Include="src\cpuBus.cpp" />
     <ClCompile Include="src\cpuTrace.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\ppu.cpp" />
     <ClCompile Include="src\ppuBus.cpp" />
   </ItemGroup>
   <ItemGroup>

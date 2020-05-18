@@ -10,6 +10,7 @@ public:
     void addWriteCallback(WriteCallback cb);
 
     uint8 read(uint16 address);
+    uint16 readWord(uint16 address);
     void write(uint16 address, uint8 value);
 
 private:

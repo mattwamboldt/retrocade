@@ -15,7 +15,7 @@ uint8 PPUBus::read(uint16 address)
 {
     if (address < 0x2000)
     {
-        return cart->prgRead(address);
+        return cart->chrRead(address);
     }
 
     if (address < 0x3F00)
@@ -37,11 +37,18 @@ uint8 PPUBus::read(uint16 address)
     }
 }
 
+uint16 PPUBus::readWord(uint16 address)
+{
+    uint8 lo = read(address);
+    uint8 hi = read(address + 1);
+    return ((uint16)hi << 8) + lo;
+}
+
 void PPUBus::write(uint16 address, uint8 value)
 {
     if (address < 0x2000)
     {
-        cart->prgWrite(address, value);
+        cart->chrWrite(address, value);
         return;
     }
 

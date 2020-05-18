@@ -22,23 +22,7 @@ uint8 CPUBus::read(uint16 address)
 
     if (address < 0x4000)
     {
-        // map to the ppu register based on the last 3 bits
-        // http://wiki.nesdev.com/w/index.php/PPU_registers
-        // TODO: might be better to store the registers as an array or union
-        // doing the dumb obvious thing for now
-        uint16 masked = address & 0x0007;
-        switch (masked)
-        {
-            case 0x00: return ppu->control;
-            case 0x01: return ppu->mask;
-            case 0x02: return ppu->status;
-            case 0x03: return ppu->oamAddress;
-            case 0x04: return ppu->oamData;
-            case 0x05: return ppu->scroll;
-            case 0x06: return ppu->address;
-            case 0x07: return ppu->data;
-            default: return 0;
-        }
+        return ppu->readRegister(address);
     }
 
     if (address < 0x4020)
@@ -66,7 +50,7 @@ uint8 CPUBus::read(uint16 address)
             case 0x4011: return apu->dmcRaw;
             case 0x4012: return apu->dmcStart;
             case 0x4013: return apu->dmcLength;
-            case 0x4014: return ppu->oamDma;
+            case 0x4014: return ppu->readRegister(address);
             case 0x4015: return apu->channelStatus;
             case 0x4016: return joy1;
             case 0x4017: return joy2;
@@ -95,21 +79,7 @@ void CPUBus::write(uint16 address, uint8 value)
     }
     else if (address < 0x4000)
     {
-        // map to the ppu register based on the last 3 bits
-        // http://wiki.nesdev.com/w/index.php/PPU_registers
-        uint16 masked = address & 0x0007;
-        switch (masked)
-        {
-            case 0x00: ppu->control = value; break;
-            case 0x01: ppu->mask = value; break;
-            case 0x02: ppu->status = value; break;
-            case 0x03: ppu->oamAddress = value; break;
-            case 0x04: ppu->oamData = value; break;
-            case 0x05: ppu->scroll = value; break;
-            case 0x06: ppu->address = value; break;
-            case 0x07: ppu->data = value; break;
-        }
-
+        ppu->writeRegister(address, value);
         writeCallback(address, value);
     }
     else if (address < 0x4020)
@@ -136,7 +106,7 @@ void CPUBus::write(uint16 address, uint8 value)
             case 0x4011: apu->dmcRaw = value; break;
             case 0x4012: apu->dmcStart = value; break;
             case 0x4013: apu->dmcLength = value; break;
-            case 0x4014: ppu->oamDma = value; break;
+            case 0x4014: ppu->writeRegister(address, value); break;
             case 0x4015: apu->channelStatus = value; break;
             case 0x4016: joy1 = value; break;
             case 0x4017: joy2 = value; break;
