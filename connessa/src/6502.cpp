@@ -1,11 +1,27 @@
 #include "6502.h"
 
+const uint16 NMI_VECTOR = 0xFFFA;
+const uint16 RESET_VECTOR = 0xFFFC;
+const uint16 IRQ_VECTOR = 0xFFFE;
+
+// TODO: Interrupt handling isn't exact, there are several situations where
+// another vector will be used, and the interrupt polling isn't exact
+void MOS6502::handleInterrupt(uint16 vector)
+{
+    pushWord(pc);
+    push(status | 0b00100000);
+    instAddr = pc = readWord(vector);
+    setFlags(STATUS_INT_DISABLE);
+    nmiRequested = false;
+    interruptRequested = false;
+}
+
 void MOS6502::reset()
 {
     isHalted = false;
-    status = 0b00100100;
-    stack = 0xFD;
-    instAddr = pc = readWord(0xFFFC);
+    status = 0;
+    stack = 0xFF;
+    handleInterrupt(RESET_VECTOR);
 }
 
 bool MOS6502::tick()
@@ -19,6 +35,15 @@ bool MOS6502::tick()
     {
         --waitCycles;
         return false;
+    }
+
+    if (nmiRequested)
+    {
+        handleInterrupt(NMI_VECTOR);
+    }
+    else if (interruptRequested)
+    {
+        handleInterrupt(IRQ_VECTOR);
     }
 
     inst = bus->read(pc++);
@@ -776,12 +801,15 @@ void MOS6502::pushWord(uint16 v)
 
 void MOS6502::nonMaskableInterrupt()
 {
-    // TODO:
+    nmiRequested = true;
 }
 
 void MOS6502::requestInterrupt()
 {
-    // TODO:
+    if (!isFlagSet(STATUS_INT_DISABLE))
+    {
+        interruptRequested = true;
+    }
 }
 
 uint16 MOS6502::readWord(uint16 base)

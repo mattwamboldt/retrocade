@@ -456,8 +456,6 @@ public:
     uint8 inst; // Currently executing instruction
     uint16 instAddr; // Address of current instruction
 
-    uint8 tempData; // temp storage
-
     void connect(IBus* bus) { this->bus = bus; }
 
     void reset();
@@ -563,6 +561,7 @@ private:
 
     uint8 p1; // temp storage for operands
     uint8 p2;
+    uint8 tempData; // temp storage
 
     IBus* bus;
 
@@ -583,6 +582,8 @@ private:
     void jumpOnFlagSet(uint8 flag, uint8 offset);
     void jumpOnFlagClear(uint8 flag, uint8 offset);
     void jumpRelative(uint8 offset);
+
+    void handleInterrupt(uint16 vector);
 
     // Stack Manipulation
     uint8 pull();
