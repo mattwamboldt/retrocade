@@ -36,15 +36,23 @@ void Cartridge::load(const char* file)
     INESHeader* header = (INESHeader*)readHead;
     readHead += sizeof(INESHeader);
 
-    map000prgRomBank1 = map000prgRomBank2 = (uint8*)readHead;
-    readHead += 16 * 1024 * header->prgRomSize;
+    prgRomSize = header->prgRomSize;
+    prgRom = prgRomBank1 = (uint8*)readHead;
+    prgRomBank2 = prgRom + kilobytes(16) * (prgRomSize - 1);
 
-    if (header->prgRomSize == 2)
+    readHead += header->prgRomSize * kilobytes(16);
+
+    chrRom = 0;
+    if (header->chrRomSize > 0)
     {
-        map000prgRomBank2 += 0x4000;
+        chrRom = patternTable0 = (uint8*)readHead;
+        patternTable1 = chrRom + kilobytes(4);
     }
-
-    chrRom = (uint8*)readHead;
+    else
+    {
+        patternTable0 = chrRam;
+        patternTable1 = chrRam + kilobytes(4);
+    }
 }
 
 uint8 Cartridge::prgRead(uint16 address)
@@ -61,10 +69,10 @@ uint8 Cartridge::prgRead(uint16 address)
 
     if (address < 0xC000)
     {
-        return map000prgRomBank1[address - 0x8000];
+        return prgRomBank1[address - 0x8000];
     }
 
-    return map000prgRomBank2[address - 0xC000];
+    return prgRomBank2[address - 0xC000];
 }
 
 bool Cartridge::prgWrite(uint16 address, uint8 value)
@@ -80,11 +88,24 @@ bool Cartridge::prgWrite(uint16 address, uint8 value)
 
 uint8 Cartridge::chrRead(uint16 address)
 {
-    return chrRom[address];
+    if (address < 0x1000)
+    {
+        return patternTable0[address];
+    }
+
+    return patternTable1[address - 0x1000];
 }
 
 bool Cartridge::chrWrite(uint16 address, uint8 value)
 {
-    chrRom[address] = value;
+    if (address < 0x1000)
+    {
+        patternTable0[address] = value;
+    }
+    else
+    {
+        patternTable1[address - 0x1000] = value;
+    }
+
     return true;
 }

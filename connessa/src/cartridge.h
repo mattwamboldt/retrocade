@@ -13,9 +13,14 @@ public:
 
 private:
     // TODO: This stuff will change when we get multiple mappers
-    uint8 cartRam[8 * 1024] = {};
-    uint8* map000prgRomBank1;
-    uint8* map000prgRomBank2;
-    uint8* map000prgRam;
+    uint8 cartRam[kilobytes(8)] = {};
+    uint8 prgRomSize;
+    uint8* prgRom;
+    uint8* prgRomBank1;
+    uint8* prgRomBank2;
+
     uint8* chrRom;
+    uint8 chrRam[kilobytes(8)];
+    uint8* patternTable0;
+    uint8* patternTable1;
 };
