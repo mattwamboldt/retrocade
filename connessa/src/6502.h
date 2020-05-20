@@ -538,7 +538,6 @@ public:
     void arr(uint8 data);
     void axs(uint8 data);
     void lax(uint8 data);
-    void sax(uint8 data);
 
     uint8 dcp(uint8 data);
     uint8 isc(uint8 data);
@@ -568,7 +567,7 @@ private:
     // This model somewhat splits the operation in a way that could be
     // made cycle accurate in future, but for now is run all at once
     uint16 calcAddress(AddressingMode addressMode);
-    void loadOperands();
+    void loadOperands(AddressingMode addressMode);
     void executeInstruction();
 
     // Status Register helpers

@@ -5,7 +5,15 @@ const uint16 RESET_VECTOR = 0xFFFC;
 const uint16 IRQ_VECTOR = 0xFFFE;
 
 // TODO: Interrupt handling isn't exact, there are several situations where
-// another vector will be used, and the interrupt polling isn't exact
+// another vector will be used, and the interrupt polling isn't right
+// TODO: make interupt take some amount of clock cycles, on the 6502 it
+// inserts a break instruction and then chooses the address branch based on the
+// nmi and irq signals. doing this instead may handle a few of these TODOs
+
+// TODO: Handle additional cycle scenarios for page boundarys
+// TODO: add a cycle when branches are executed
+// TODO: Indirect addressing has a bug that needs to be emulated
+
 void MOS6502::handleInterrupt(uint16 vector)
 {
     pushWord(pc);
@@ -55,7 +63,7 @@ bool MOS6502::tick()
     }
     else
     {
-        loadOperands();
+        loadOperands(op.addressMode);
         executeInstruction();
         waitCycles = op.cycleCount - 1; // exclude the current cycle
     }
@@ -461,6 +469,15 @@ uint16 MOS6502::calcAddress(AddressingMode addressMode, uint16 address, uint8 a,
 {
     switch (addressMode)
     {
+        case ZeroPage:
+            return a;
+
+        case ZeroPageX:
+            return (uint8)(a + x);
+
+        case ZeroPageY:
+            return (uint8)(a + y);
+
         case Absolute:
             return (uint16)b << 8 | a;
 
@@ -492,15 +509,6 @@ uint16 MOS6502::calcAddress(AddressingMode addressMode, uint16 address, uint8 a,
         }
         case Relative:
             return (address + 2) + (int8)a;
-
-        case ZeroPage:
-            return a;
-
-        case ZeroPageX:
-            return (uint8)(a + x);
-
-        case ZeroPageY:
-            return (uint8)(a + y);
     }
 
     return 0;
@@ -511,11 +519,9 @@ uint16 MOS6502::calcAddress(AddressingMode addressMode)
     return calcAddress(addressMode, instAddr, p1, p2);
 }
 
-void MOS6502::loadOperands()
+void MOS6502::loadOperands(AddressingMode addressMode)
 {
-    uint8 opcode = bus->read(instAddr);
-    Operation op = operations[opcode];
-    switch (op.addressMode)
+    switch (addressMode)
     {
         case Absolute:
         case AbsoluteX:
@@ -580,6 +586,8 @@ bool MOS6502::requireRead(uint8 opCode)
 void MOS6502::executeInstruction()
 {
     Operation op = operations[inst];
+    //TODO: PERF: This if is adding extra time, verify if its faster to duplicate the data read line
+    // or maybe ditch the parameterized version of these functions
     if (requireRead(op.opCode))
     {
         tempData = readData(op.addressMode);
@@ -819,6 +827,7 @@ uint16 MOS6502::readWord(uint16 base)
     return ((uint16)hi << 8) + lo;
 }
 
+//TODO: PERF: Calculating the address for both read and write
 uint8 MOS6502::readData(AddressingMode addressMode)
 {
     if (addressMode == Immediate)
