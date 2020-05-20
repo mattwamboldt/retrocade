@@ -49,3 +49,36 @@ https://wiki.nesdev.com/w/index.php/PPU_scrolling
 
 About half way through they explain the internal registers related to the stuff I'm talking about.
 I wish this was just in the page that explained registers.
+
+======
+This now makes sense..! I hope... Took awhile to collate all this into one process
+Eventually I'll have to write this up properly from what I've managed to understand in a blog or something
+http://wiki.nesdev.com/w/index.php/PPU_rendering#Cycles_1-256
+
+vram address is pointing to a location in the nametable
+first byte we read the value at this address, which is an index into the pattern table
+http://wiki.nesdev.com/w/index.php/PPU_nametables
+
+second byte, we read the attribute byte for that nametable location
+http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
+
+third and forth byte, we use the nametable value to get the two planes of the pattern data
+http://wiki.nesdev.com/w/index.php/PPU_pattern_tables
+
+then we advance by the vramincrement and store our results into the shift registers
+Repeat... forever!! with some exceptions for vblanking, and some other stuff
+
+The attribute byte determines which of four pallettes to use and
+the pattern bits give us which of four colours in that palette to use
+These actually form an address into paletteRam, which is filled with colors
+From the available nes palette. http://wiki.nesdev.com/w/index.php/PPU_palettes
+These palettes are in ram and can be adjusted at run time, which would explain how
+tetris level colorization would have worked, also means you can only have
+16 colors at once without mid frame shenanigans
+
+Sprites are evaluated in a slightly more complex but similar way out of object memory
+then rendered instead of the background value depending on priority
+
+Scrolling within an 8 bit tile is done by reading bits further in on the shift registers
+and lower down in the nametable than a given scanline is supposed to
+http://wiki.nesdev.com/w/index.php/PPU_scrolling (lots of other good stuff on this page)

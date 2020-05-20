@@ -8,14 +8,8 @@
 class PPU
 {
 public:
-    uint8 control;
     uint8 mask;
-    uint8 status;
     uint8 oamAddress;
-    uint8 oamData;
-    uint8 scroll;
-    uint8 ppuAddress;
-    uint8 ppuData;
     uint8 oamDma;
     uint8 oam[256];
 
@@ -28,6 +22,7 @@ public:
 
     uint32 getCycle() { return cycle; }
     uint32 getScanLine() { return scanline; }
+    bool getVBlankActive() { return vBlankActive; }
 
     // These are used by the mapper to write to the internal registers wince the write has side effects
     // http://wiki.nesdev.com/w/index.php/PPU_registers
@@ -45,24 +40,32 @@ private:
 
     bool writeToggle;
 
+    uint16 outputOffset;
+
     uint16 vramAddress;
     uint16 tempVramAddress;
     uint8 fineScrollX;
-    uint8 fineScrollY;
+    uint8 vramIncrement;
+    bool generateNMIOnVBlank;
+    bool useTallSprites;
+    bool vBlankActive;
+    bool spriteZeroHit;
+    bool overflowSet;
+    uint16 spritePatternBase;
+    uint16 backgroundPatternBase;
 
-    uint16 patternTableShift1; // plane 1 data.. I think?
-    uint16 patternTableShift2; // plane 2 data
-    uint8 attributeShift1;
-    uint8 attributeShift2;
+    uint16 patternShiftLo; // plane 1 data.. I think?
+    uint16 patternShiftHi; // plane 2 data
+    uint8 attributeShiftLo; // These both point to the same attribute register, just shifted for the mux to work well... I think
+    uint8 attributeShiftHi;
 
     // ===========
     // temp latches for data
     // ==========
     uint8 nameTableByte; // nametable = index into pattern table
     uint8 attributeTableByte;
-
-    // http://wiki.nesdev.com/w/index.php/PPU_nametables background evaluation
-    // 4. Fetch the high-order byte of this sliver from an address 8 bytes higher.
     uint8 patternTableLo;
     uint8 patternTableHi;
+
+    uint8 calcBackgroundPixel();
 };

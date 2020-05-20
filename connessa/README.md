@@ -3,7 +3,7 @@
 A Console Based implementation of an nes emulator
 
 This implementation only deals with the raw execution of the component, ensuring memory is written to correctly.
-It's used for debugging the enumaltor a low level only.
+It's used for debugging the emulator a low level only.
 The full graphics and sound will be done in retrocade, though I may mess around with some basic ppu tests with conio
 
 == iNES file format

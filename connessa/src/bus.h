@@ -1,6 +1,8 @@
 #pragma once
 #include "common.h"
 
+// PERF: Check if the vtable read is affecting read speed given that it happens thousands of times per frame
+
 class IBus
 {
     public:

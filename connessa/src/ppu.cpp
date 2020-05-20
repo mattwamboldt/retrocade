@@ -1,4 +1,6 @@
 #include "ppu.h"
+#include <intrin.h>
+#include <Windows.h>
 
 // OVERALL TODO:
 // - Handle Mask
@@ -6,82 +8,163 @@
 // - handle sprite rendering
 // - handle render disable
 
+// PERF: This seems to be the limiter on framerate currently
+// Tried using a mux operation with two shifts, then unrolling to this, neither seemed to help much
+// could be that doing one pixel per cycle is wildly thrashing the cache and I should instead attempt to do
+// the whole tile every 8 cycles. or there are some bit tricks that could help me here. Needs time...
+// Switching to another task for now
+uint8 PPU::calcBackgroundPixel()
+{
+    uint8 mask = 0b10000000 >> fineScrollX;
+    uint8 offset = 7 - fineScrollX;
+
+    uint8 backgroundColor = ((uint8)(patternShiftLo >> 8) & mask) >> offset;
+    --offset;
+    backgroundColor |= ((uint8)(patternShiftHi >> 8) & mask) >> offset;
+    --offset;
+    backgroundColor |= (attributeShiftLo & mask) >> offset;
+    --offset;
+    backgroundColor |= (attributeShiftHi & mask) >> offset;
+    --offset;
+
+    patternShiftLo <<= 1;
+    patternShiftHi <<= 1;
+    attributeShiftLo <<= 1;
+    attributeShiftHi <<= 1;
+
+    return backgroundColor;
+}
+
 void PPU::tick()
 {
     if (cycle == 0)
     {
+        ++cycle;
         return;
     }
 
-    // extracting info from ppuctrl
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#Controller_.28.242000.29_.3E_write
-    uint16 nameTableBase = 0x2000 + ((control & 0b00000011) * 0x400);
-    uint8 vramIncrement = 1;
-    if (control & 0b00000100)
+    if (cycle == 1)
     {
-        vramIncrement = 32;
-    }
+        if (scanline == 241)
+        {
+            vBlankActive = true;
+        }
 
-    uint16 spriteTableAddress = 0;
-    bool largeSprites = control & 0b00010000 > 0;
-    if (!largeSprites && control & 0b00001000)
-    {
-        spriteTableAddress = 0x1000;
+        if (scanline == 261)
+        {
+            vBlankActive = false;
+            spriteZeroHit = false;
+            overflowSet = false;
+            outputOffset = 0;
+        }
     }
-
-    bool generateNMI = control & 0b10000000;
     
-    // This now makes sense..! I hope... Took awhile to colate all this into one process
-    // http://wiki.nesdev.com/w/index.php/PPU_rendering#Cycles_1-256
-    // vram address is pointing to a location in the nametable
-    // first byte we read the value at this address, which is an index into the pattern table
-    // http://wiki.nesdev.com/w/index.php/PPU_nametables
-    // second byte, we read the attribute byte for that nametable location
-    // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
-    // third and forth byte, we use the nametable value to get the two planes of the pattern data
-    // http://wiki.nesdev.com/w/index.php/PPU_pattern_tables
-    // then we advance by the vramincrement and store our results into the shift registers
-    // Repeat... forever!! with some excetions for vblanking, and some other stuff
+    // TODO: calculate the current pixel from shift registers
+    if (cycle <= NES_SCREEN_WIDTH && scanline < NES_SCREEN_HEIGHT)
+    {
+        uint8 backgroundColor = calcBackgroundPixel();
 
-    // The attribute byte determines which of four pallettes to use and
-    // the pattern bits give us which of four colours in that palette to use
-    // These actually form an address into paletteRam, which is filled with colors
-    // From the available nes palette. http://wiki.nesdev.com/w/index.php/PPU_palettes
-    // These palettes are in ram and can be adjusted at run time, which would explain how
-    // tetris level colorization would have worked, also means you can only have
-    // 16 colors at once without mid frame shenanigans
+        // TODO: sprite evaluation
+        screenBuffer[outputOffset++] = backgroundColor;
+    }
 
-    // Sprites are evaluated in a slightly more complex but similar way out of object memory
-    // then rendered instead of the background value depending on priority
-
-    // Scrolling within an 8 bit tile is done by reading bits further in on the shift registers
-    // and lower down in the nametable than a given scanline is supposed to
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling (lots of other good stuff on this page)
+    // Perform data fetches
+    switch (cycle % 8)
+    {
+        case 2: nameTableByte = bus->read(vramAddress); break;
+        case 4: attributeTableByte = bus->read(vramAddress); break; // TODO: calculate attribute address
+        case 6: patternTableLo = bus->read(nameTableByte); break; // TODO: grab correct "side"
+        case 0: patternTableHi = bus->read(nameTableByte + 8); break;
+    }
 
     if (cycle % 8 == 0)
     {
-        // nameTableByte = bus->read();
-        // attributeTableByte = bus->read();
-        // patternTableLo = bus->read();
-        // patternTableHi = bus->read();
+        patternShiftLo &= 0xFF00;
+        patternShiftLo |= patternTableLo;
+        patternShiftHi &= 0xFF00;
+        patternShiftHi |= patternTableHi;
+
+        if (cycle < NES_SCREEN_WIDTH || cycle > 320)
+        {
+            if ((vramAddress & 0x001F) == 31)
+            {
+                vramAddress &= 0xFFE0;
+                vramAddress ^= 0x0400;
+            }
+            else
+            {
+                ++vramAddress;
+            }
+        }
+        else if (cycle == NES_SCREEN_WIDTH)
+        {
+            if ((vramAddress & 0x7000) != 0x7000)
+            {
+                vramAddress += 0x1000;
+            }
+            else
+            {
+                vramAddress &= ~0x7000;
+                int tileRow = (vramAddress & 0x03E0) >> 5;
+                if (tileRow == 29)
+                {
+                    tileRow = 0;
+                    vramAddress ^= 0x0800;
+                }
+                else if (tileRow == 31)
+                {
+                    tileRow = 0;
+                }
+                else
+                {
+                    ++tileRow;
+                }
+
+                vramAddress = (vramAddress & ~0x03E0) | (tileRow << 5);
+            }
+        }
     }
 
-    // TODO: Implement vblank period, statuss interrupts idle etc.
+    if (cycle == 257)
+    {
+        vramAddress &= ~0x041F;
+        vramAddress |= tempVramAddress & 0x041F;
+    }
+
+    if (scanline == 261 && cycle >= 280 && cycle <= 304)
+    {
+        vramAddress &= ~0x7BE0;
+        vramAddress |= tempVramAddress & 0x7BE0;
+    }
+
     ++cycle;
     if (cycle > 340)
     {
-        // TODO: handle wrap around to next frame render
         ++scanline;
         cycle = 0;
+
+        if (scanline > 261)
+        {
+            scanline = 0;
+            if (isOddFrame)
+            {
+                scanline = 1;
+            }
+
+            isOddFrame = !isOddFrame;
+        }
     }
+
 }
 
-// TODO: Implement side effects give here http://wiki.nesdev.com/w/index.php/PPU_scrolling#Register_controls
+// Side effects http://wiki.nesdev.com/w/index.php/PPU_scrolling#Register_controls
 void PPU::writeRegister(uint16 address, uint8 value)
 {
     if (address == 0x4014)
     {
-        oamData = value;
+        // TODO: write a function at the console level to engage a dma process
+        // that stalls the cpu and transfers this page into oamaddr
+        oamDma = value;
         return;
     }
 
@@ -90,14 +173,62 @@ void PPU::writeRegister(uint16 address, uint8 value)
     uint16 masked = address & 0x0007;
     switch (masked)
     {
-        case 0x00: control = value; break;
+        case 0x00: 
+        {
+            tempVramAddress &= 0xF3FF;
+            tempVramAddress |= (uint16)(value & 0b00000011) << 10;
+            vramIncrement = (value & 0b00000100) ? 32 : 1;
+            spritePatternBase = (value & 0b00001000) ? 0x1000 : 0;
+            backgroundPatternBase = (value & 0b00010000) ? 0x1000 : 0;
+            useTallSprites = (value & 0b00100000) > 0;
+            generateNMIOnVBlank = (value & 0b10000000) > 0;
+            break;
+        }
         case 0x01: mask = value; break;
-        case 0x02: status = value; break;
         case 0x03: oamAddress = value; break;
-        case 0x04: oamData = value; break;
-        case 0x05: scroll = value; break;
-        case 0x06: ppuAddress = value; break;
-        case 0x07: ppuData = value; break;
+        case 0x04: oam[oamAddress++] = value; break;
+        case 0x05: 
+        {
+            if (!writeToggle)
+            {
+                fineScrollX = value & 0b00000111;
+                tempVramAddress &= 0xFFE0;
+                tempVramAddress |= (value & 0b11111000) >> 3;
+            }
+            else
+            {
+                tempVramAddress &= 0x8C1F;
+                tempVramAddress |= (uint16)(value & 0b00000111) << 12;
+                tempVramAddress |= (uint16)(value & 0b11111000) << 2;
+            }
+
+            writeToggle = !writeToggle;
+            break;
+        }
+        break;
+        case 0x06:
+        {
+            if (!writeToggle)
+            {
+                tempVramAddress &= 0x00FF;
+                tempVramAddress |= (uint16)value << 8;
+            }
+            else
+            {
+                tempVramAddress &= 0xFF00;
+                tempVramAddress |= value;
+                vramAddress = tempVramAddress;
+            }
+
+            writeToggle = !writeToggle;
+        }
+        break;
+        case 0x07:
+        {
+            bus->write(vramAddress, value);
+            vramAddress += vramIncrement;
+        }
+        break;
     }
 }
 
@@ -105,25 +236,43 @@ uint8 PPU::readRegister(uint16 address)
 {
     if (address == 0x4014)
     {
-        return oamData; // TODO: advance oamaddr per write
+        return 0; // write only
     }
 
     // map to the ppu register based on the last 3 bits
-    // http://wiki.nesdev.com/w/index.php/PPU_registers
-    // TODO: might be better to store the registers as an array or union
-    // doing the dumb obvious thing for now
     uint16 masked = address & 0x0007;
     switch (masked)
     {
-        case 0x00: return control; // TODO: Should we care about readonly and writeonly?
-        case 0x01: return mask;
-        case 0x02: return status;
+        case 0x02:
+        {
+            writeToggle = 0;
+            uint8 status = 0;
+            if (vBlankActive)
+            {
+                status |= 0b10000000;
+            }
+
+            if (spriteZeroHit)
+            {
+                status |= 0b01000000;
+            }
+
+            if (overflowSet)
+            {
+                status |= 0b00100000;
+            }
+
+            return status;
+        }
         case 0x03: return oamAddress;
-        case 0x04: return oamData;
-        case 0x05: return scroll; // TODO: handle double write logic
-        case 0x06: return ppuAddress; // TODO: handle double write logic
-        case 0x07: return ppuData; // TODO: advance teh vramaddress by ctrl increment
-        default: return 0;
+        case 0x04: return oam[oamAddress]; // TODO: unsure about autoincrement
+        case 0x07: // TODO: there's mention of an internal read buffer that may need to be handled, alo unsure about read incrementing
+        {
+            uint8 result = bus->read(vramAddress);
+            vramAddress += vramIncrement;
+            return result;
+        }
+        default: return 0; // TODO: handle reads from writeonly registers
     }
 }
 

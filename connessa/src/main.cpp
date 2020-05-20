@@ -335,6 +335,10 @@ void gameView()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     SMALL_RECT location = {0, 0, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT };
+    // TODO: This function eats 24ms of our 33ms frame time leaving 9 to simulate the frame
+    // This should be doable with an efficient implementation, but thats a lot of pressure to put on
+    // debugging something that doesn't even work yet while I'm still learning. So abandoning
+    // the console version for now. :(
     WriteConsoleOutputA(console, pixels, { NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT }, { 0, 0 }, &location);
 }
 
@@ -393,6 +397,8 @@ void singleStep()
     }
 }
 
+bool wasVBlankActive = false;
+
 void update(real32 secondsPerFrame)
 {
     if (cpu.hasHalted())
@@ -404,7 +410,7 @@ void update(real32 secondsPerFrame)
     // cpu and ppu per needed timings, cpu and apu every 12, ppu every 4
 
     // TODO: There s a note on the wiki that mentions having a hard coded clock rate
-    // "Emulator authors may wish to emulate the NTSC NES/Famicom CPU at 21441960 Hz ((341×262-0.5)×4×60) to ensure a synchronised/stable 60 frames per second."
+    // "Emulator authors may wish to emulate the NTSC NES/Famicom CPU at 21441960 Hz ((341ï¿½262-0.5)ï¿½4ï¿½60) to ensure a synchronised/stable 60 frames per second."
     // I don't understand how this works, so for now, I'll just calculate it
     int32 masterClockHz = 21477272;
     int32 masterCycles = (int32)(secondsPerFrame * masterClockHz);
@@ -420,6 +426,13 @@ void update(real32 secondsPerFrame)
             ppu.tick();
         }
     }
+
+    if (ppu.getVBlankActive() && !wasVBlankActive)
+    {
+        flushScreenBuffer();
+    }
+
+    wasVBlankActive = ppu.getVBlankActive();
 }
 
 int main(int argc, char *argv[])
@@ -439,12 +452,9 @@ int main(int argc, char *argv[])
     cpuBus.connect(&ppu, &apu, &cartridge);
     cpuBus.addWriteCallback(renderMemCell);
     ppuBus.connect(&ppu, &cartridge);
-    cartridge.load("data/all_instrs.nes");
+    cartridge.load("data/nestest.nes");
     cpu.reset();
 
-    
-    ppu.renderPatternTable();
-    flushScreenBuffer();
     renderMode = true;
 
     real32 framesPerSecond = 30.0f;
