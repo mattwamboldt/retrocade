@@ -61,7 +61,6 @@ uint8 CPUBus::read(uint16 address)
     return cart->prgRead(address);
 }
 
-
 uint16 CPUBus::readWord(uint16 address)
 {
     uint8 lo = read(address);

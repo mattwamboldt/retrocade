@@ -1,8 +1,23 @@
 ﻿#include "nes.h"
+#include "cpuTrace.h"
+
+NES::NES()
+{
+    cpu.connect(&cpuBus);
+    ppu.connect(&ppuBus);
+    cpuBus.connect(&ppu, &apu, &cartridge);
+    ppuBus.connect(&ppu, &cartridge);
+}
+
+void NES::loadRom(const char * path)
+{
+    cartridge.load(path);
+    cpu.reset();
+}
 
 void NES::update(real32 secondsPerFrame)
 {
-    if (cpu.hasHalted())
+    if (cpu.hasHalted() || singleStepMode)
     {
         return;
     }
@@ -19,7 +34,7 @@ void NES::update(real32 secondsPerFrame)
     {
         if (i % 12 == 0)
         {
-            singleStep();
+            cpuStep();
         }
 
         if (i % 4 == 0)
@@ -34,4 +49,28 @@ void NES::update(real32 secondsPerFrame)
     }
 
     wasVBlankActive = ppu.getVBlankActive();
+}
+
+void NES::cpuStep()
+{
+    if (traceEnabled && !cpu.hasHalted() && !cpu.isExecuting())
+    {
+        logInstruction("data/6502.log", cpu.instAddr, &cpu, &cpuBus);
+    }
+
+    if (cpu.tick() && cpu.hasHalted())
+    {
+        flushLog();
+        singleStepMode = true;
+    }
+}
+
+void NES::singleStep()
+{
+    cpuStep();
+
+    while (cpu.isExecuting())
+    {
+        cpu.tick();
+    }
 }

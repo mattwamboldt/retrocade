@@ -2,6 +2,7 @@
 #include <xinput.h>
 
 #include "common.h"
+#include "core\nes.h"
 
 // Dynamic Loading of XInput
 typedef DWORD WINAPI XInputGetStateFn(DWORD dwUserIndex, XINPUT_STATE* pState);
@@ -210,6 +211,15 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
 
     resizeDIBSection(&globalBackBuffer, 1280, 720);
 
+    NES nes;
+    nes.loadRom("data/nestest.nes");
+
+    real32 framesPerSecond = 30.0f;
+    real32 secondsPerFrame = 1.0f / framesPerSecond;
+
+    frameTime = getClockTime();
+    uint32 frameCount = 0;
+
     int xOffset = 0;
     int yOffset = 0;
     
@@ -226,6 +236,43 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
         }
+
+        /*
+        if (input == 'q')
+        {
+            isRunning = false;
+        }
+
+        if (input == 'd')
+        {
+            // debug.nextpage();
+        }
+
+        if (input == 'a')
+        {
+            // debug.prevpage();
+        }
+
+        if (input == 'c')
+        {
+            //debug.toggleAsciiMode();
+        }
+
+        if (input == 'p')
+        {
+            nes.toggleSingleStep();
+        }
+
+        if (input == ' ')
+        {
+            nes.singleStep();
+        }
+
+        if (input == '`')
+        {
+            nes.reset();
+        }
+        */
 
         for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i)
         {
@@ -255,6 +302,8 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
             }
         }
 
+        nes.update(secondsPerFrame);
+
         render(globalBackBuffer, xOffset, yOffset);
 
         HDC deviceContext = GetDC(window);
@@ -264,6 +313,31 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
 
         ++xOffset;
         ++yOffset;
+
+        frameElapsed = getSecondsElapsed(frameTime, getClockTime());
+        if (frameElapsed < secondsPerFrame)
+        {
+            if (useSleep)
+            {
+                DWORD sleepMs = (DWORD)(1000.0f * (secondsPerFrame - frameElapsed));
+                if (sleepMs > 0)
+                {
+                    Sleep(sleepMs);
+                }
+            }
+
+            while (frameElapsed < secondsPerFrame)
+            {
+                frameElapsed = getSecondsElapsed(frameTime, getClockTime());
+            }
+        }
+        else
+        {
+            OutputDebugStringA("FrameMissed\n");
+        }
+
+        frameTime = getClockTime();
+        ++frameCount;
     }
 
     return 0;
