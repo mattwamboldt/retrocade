@@ -73,6 +73,11 @@ void PPU::tick()
     {
         case 2: nameTableByte = bus->read(vramAddress); break;
         case 4: attributeTableByte = bus->read(vramAddress); break; // TODO: calculate attribute address
+        // TODO: THIS IS WRONG!!!
+        // the nametable byte is an index into which tile to pull out of the 256 available
+        // but thats not directly mappable to the pattern table address, we need some math in here
+        // I'm a dumb dumb!
+        // http://wiki.nesdev.com/w/index.php/PPU_pattern_tables
         case 6: patternTableLo = bus->read(nameTableByte); break; // TODO: grab correct "side"
         case 0: patternTableHi = bus->read(nameTableByte + 8); break;
     }
