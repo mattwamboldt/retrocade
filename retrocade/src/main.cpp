@@ -1,8 +1,7 @@
 #include <windows.h>
 #include <xinput.h>
 
-typedef unsigned char uint8;
-typedef unsigned int uint32;
+#include "common.h"
 
 // Dynamic Loading of XInput
 typedef DWORD WINAPI XInputGetStateFn(DWORD dwUserIndex, XINPUT_STATE* pState);
@@ -75,6 +74,9 @@ WindowSize GetWindowSize(HWND window)
 
 static bool isRunning = true;
 static GDIBackBuffer globalBackBuffer = {};
+static LARGE_INTEGER frameTime;
+real32 frameElapsed;
+static int64 cpuFreq = 1;
 
 void render(GDIBackBuffer buffer, int xOffset, int yOffset)
 {
@@ -154,9 +156,26 @@ LRESULT windowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
+LARGE_INTEGER getClockTime()
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return counter;
+}
+
+real32 getSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
+{
+    int64 elapsed = end.QuadPart - start.QuadPart;
+    return (real32)elapsed / (real32)cpuFreq;
+}
+
 int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showCmd)
 {
     LoadXInput();
+
+    LARGE_INTEGER counterFrequency;
+    QueryPerformanceFrequency(&counterFrequency);
+    cpuFreq = counterFrequency.QuadPart;
 
     WNDCLASSA windowClass = {};
     windowClass.style = CS_HREDRAW|CS_VREDRAW;
@@ -165,6 +184,9 @@ int WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showC
     windowClass.hIcon = LoadIcon((HINSTANCE)NULL, IDI_APPLICATION);
     windowClass.lpszClassName = "RetrocadeWndClass";
     windowClass.hCursor = LoadCursorA(instance, IDC_ARROW);
+
+    UINT desiredSchedulerMS = 1;
+    bool useSleep = timeBeginPeriod(desiredSchedulerMS) == TIMERR_NOERROR;
 
     if (!RegisterClassA(&windowClass))
     {

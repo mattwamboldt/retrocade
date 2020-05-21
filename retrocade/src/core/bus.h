@@ -1,5 +1,5 @@
 #pragma once
-#include "common.h"
+#include "../common.h"
 
 // PERF: Check if the vtable read is affecting read speed given that it happens thousands of times per frame
 

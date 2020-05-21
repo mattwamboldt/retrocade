@@ -75,12 +75,12 @@ void CPUBus::write(uint16 address, uint8 value)
     {
         // map to the internal 2kb ram
         ram[address & 0x07FF] = value;
-        writeCallback(address, value);
+        if (writeCallback) writeCallback(address, value);
     }
     else if (address < 0x4000)
     {
         ppu->writeRegister(address, value);
-        writeCallback(address, value);
+        if (writeCallback) writeCallback(address, value);
     }
     else if (address < 0x4020)
     {
@@ -113,11 +113,11 @@ void CPUBus::write(uint16 address, uint8 value)
             default: return;
         }
 
-        writeCallback(address, value);
+        if (writeCallback) writeCallback(address, value);
     }
     // Cartridge space (logic depends on the mapper)
     else if (cart->prgWrite(address, value))
     {
-        writeCallback(address, value);
+        if (writeCallback) writeCallback(address, value);
     }
 }

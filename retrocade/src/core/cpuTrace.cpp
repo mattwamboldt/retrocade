@@ -160,7 +160,7 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
         {
             s += formatHex(s, p1);
             s += formatString(s, ",X @ ");
-            s += formatByte(s, address);
+            s += formatByte(s, (uint8)address);
 
             uint8 result = bus->read(address);
             s += formatString(s, " = ");
@@ -171,7 +171,7 @@ int formatInstruction(char* dest, uint16 address, MOS6502* cpu, IBus* bus)
         {
             s += formatHex(s, p1);
             s += formatString(s, ",Y @ ");
-            s += formatByte(s, address);
+            s += formatByte(s, (uint8)address);
 
             uint8 result = bus->read(address);
             s += formatString(s, " = ");
