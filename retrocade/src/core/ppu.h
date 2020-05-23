@@ -29,9 +29,6 @@ public:
     void writeRegister(uint16 address, uint8 value);
     uint8 readRegister(uint16 address);
 
-    // Debugging/test functions
-    void renderPatternTable();
-
 private:
     uint32 cycle;
     uint32 scanline;

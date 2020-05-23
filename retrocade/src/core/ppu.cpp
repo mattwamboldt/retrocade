@@ -15,17 +15,11 @@
 // Switching to another task for now
 uint8 PPU::calcBackgroundPixel()
 {
-    uint8 mask = 0b10000000 >> fineScrollX;
-    uint8 offset = 7 - fineScrollX;
-
-    uint8 backgroundColor = ((uint8)(patternShiftLo >> 8) & mask) >> offset;
-    --offset;
-    backgroundColor |= ((uint8)(patternShiftHi >> 8) & mask) >> offset;
-    --offset;
-    backgroundColor |= (attributeShiftLo & mask) >> offset;
-    --offset;
-    backgroundColor |= (attributeShiftHi & mask) >> offset;
-    --offset;
+    uint8 offset = 15 - fineScrollX;
+    uint8 backgroundColor = (patternShiftLo >> offset) & 1;
+    backgroundColor += (patternShiftHi >> offset) & 1;
+    //backgroundColor += (attributeShiftLo & mask) >> offset;
+    //backgroundColor += (attributeShiftHi & mask) >> offset;
 
     patternShiftLo <<= 1;
     patternShiftHi <<= 1;
@@ -65,28 +59,53 @@ void PPU::tick()
         uint8 backgroundColor = calcBackgroundPixel();
 
         // TODO: sprite evaluation
-        screenBuffer[outputOffset++] = backgroundColor;
+        screenBuffer[outputOffset++] = bus->read(0x3F00 + backgroundColor);
     }
 
     // Perform data fetches
     switch (cycle % 8)
     {
-        case 2: nameTableByte = bus->read(vramAddress); break;
-        case 4: attributeTableByte = bus->read(vramAddress); break; // TODO: calculate attribute address
+        case 2:
+        {
+            // PERF: unless complex shenanigans happen, this will always be the same byte for 8 scanlines
+            uint16 ntAddress = 0x2000 | (vramAddress & 0x0FFF);
+            nameTableByte = bus->read(ntAddress);
+        }
+        break;
+        case 4:
+        {
+            uint16 coarseX = (vramAddress & 0x001F) >> 2;
+            uint16 coarseY = (vramAddress & 0x0380) >> 4;
+            uint16 ntSelect = vramAddress & 0x0C00;
+            uint16 attAddress = 0x23C0 | ntSelect | coarseY | coarseX;
+            attributeTableByte = bus->read(attAddress);
+        }
+        break;
         // TODO: THIS IS WRONG!!!
         // the nametable byte is an index into which tile to pull out of the 256 available
         // but thats not directly mappable to the pattern table address, we need some math in here
         // I'm a dumb dumb!
         // http://wiki.nesdev.com/w/index.php/PPU_pattern_tables
-        case 6: patternTableLo = bus->read(nameTableByte); break; // TODO: grab correct "side"
-        case 0: patternTableHi = bus->read(nameTableByte + 8); break;
+        case 6:
+        {
+            uint16 patternBase = ((uint16)nameTableByte) << 4;
+            patternBase |= (vramAddress & 0x7000) >> 12;
+            patternTableLo = bus->read(patternBase);
+        }
+        break; // TODO: grab correct "side"
+        case 0:
+        {
+            uint16 patternBase = ((uint16)nameTableByte) << 4;
+            patternBase |= (vramAddress & 0x7000) >> 12;
+            patternBase += 8;
+            patternTableHi = bus->read(patternBase);
+        }
+        break;
     }
 
     if (cycle % 8 == 0)
     {
-        patternShiftLo &= 0xFF00;
         patternShiftLo |= patternTableLo;
-        patternShiftHi &= 0xFF00;
         patternShiftHi |= patternTableHi;
 
         if (cycle < NES_SCREEN_WIDTH || cycle > 320)
@@ -159,7 +178,6 @@ void PPU::tick()
             isOddFrame = !isOddFrame;
         }
     }
-
 }
 
 // Side effects http://wiki.nesdev.com/w/index.php/PPU_scrolling#Register_controls
@@ -278,57 +296,5 @@ uint8 PPU::readRegister(uint16 address)
             return result;
         }
         default: return 0; // TODO: handle reads from writeonly registers
-    }
-}
-
-void PPU::renderPatternTable()
-{
-    // TODO: on further research this won't even work without putting stuff into palette ram
-    // so come up with an initial pallet selection. this is actually good because the console is limited
-
-    // Easier way for now is to just use an array with existing palette values
-
-    // Getting my feet wet, this function renders out the current pattern table
-    int32 x = 0;
-    int32 y = 0;
-
-    uint16 patternAddress = 0x0000;
-    
-    for (int page = 0; page < 2; ++page)
-    {
-        for (int yTile = 0; yTile < 16; ++yTile)
-        {
-            for (int xTile = 0; xTile < 16; ++xTile)
-            {
-                for (int tileY = 0; tileY < 8; ++tileY)
-                {
-                    uint8 patfield01 = bus->read(patternAddress);
-                    uint8 patfield02 = bus->read(patternAddress + 8);
-
-                    for (int bit = 0; bit < 8; ++bit)
-                    {
-                        uint8 color = (patfield01 & 0b10000000) >> 7;
-                        color |= (patfield02 & 0b10000000) >> 6;
-                        patfield01 <<= 1;
-                        patfield02 <<= 1;
-                        screenBuffer[y * NES_SCREEN_WIDTH + x++] = color;
-                    }
-
-                    ++patternAddress;
-                    x -= 8;
-                    ++y;
-                }
-
-                patternAddress += 8;
-                y -= 8;
-                x += 8;
-            }
-
-            x -= 128;
-            y += 8;
-        }
-
-        y = 0;
-        x = 128;
     }
 }

@@ -45,6 +45,7 @@ void NES::update(real32 secondsPerFrame)
 
     if (ppu.getVBlankActive() && !wasVBlankActive)
     {
+        cpu.nonMaskableInterrupt();
         // flushScreenBuffer();
     }
 
