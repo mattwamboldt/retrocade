@@ -1,5 +1,5 @@
 #pragma once
-#include "../common.h"
+#include "common.h"
 
 // http://wiki.nesdev.com/w/index.php/2A03
 struct APU

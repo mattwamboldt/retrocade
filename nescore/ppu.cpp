@@ -1,6 +1,4 @@
 #include "ppu.h"
-#include <intrin.h>
-#include <Windows.h>
 
 // OVERALL TODO:
 // - Handle Mask

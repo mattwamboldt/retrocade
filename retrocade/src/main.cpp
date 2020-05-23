@@ -1,8 +1,7 @@
 #include <windows.h>
 #include <xinput.h>
 
-#include "common.h"
-#include "core\nes.h"
+#include <nescore\nes.h>
 
 /* Current objective: Ability to run nestest visually
 - Add text rendering
