@@ -456,6 +456,8 @@ public:
     uint8 inst; // Currently executing instruction
     uint16 instAddr; // Address of current instruction
 
+    MOS6502();
+
     void connect(IBus* bus) { this->bus = bus; }
 
     void reset();

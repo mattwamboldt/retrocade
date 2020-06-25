@@ -51,14 +51,14 @@ void PPU::tick()
         }
     }
     
-    // TODO: calculate the current pixel from shift registers
+    /*// TODO: calculate the current pixel from shift registers
     if (cycle <= NES_SCREEN_WIDTH && scanline < NES_SCREEN_HEIGHT)
     {
         uint8 backgroundColor = calcBackgroundPixel();
 
         // TODO: sprite evaluation
         screenBuffer[outputOffset++] = bus->read(0x3F00 + backgroundColor);
-    }
+    }*/
 
     // Perform data fetches
     switch (cycle % 8)

@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <ItemsProjectGuid>{80db5c44-55d5-4047-ad22-d93e02b2d7b5}</ItemsProjectGuid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectCapability Include="SourceItemsFromImports" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)all_instrs.nes" />
+    <None Include="$(MSBuildThisFileDirectory)nestest.nes" />
+    <None Include="$(MSBuildThisFileDirectory)NEStress.NES" />
+    <None Include="$(MSBuildThisFileDirectory)official_only.nes" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="$(MSBuildThisFileDirectory)nestest.log" />
+    <Text Include="$(MSBuildThisFileDirectory)nestest.txt" />
+    <Text Include="$(MSBuildThisFileDirectory)NEStress.txt" />
+  </ItemGroup>
+</Project>

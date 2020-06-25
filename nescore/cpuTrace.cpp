@@ -271,7 +271,7 @@ void logInstruction(const char* filename, uint16 address, MOS6502* cpu, IBus* cp
 {
     if (!logFile)
     {
-        logFile = fopen("data/6502.log", "w");
+        logFile = fopen(filename, "w");
     }
 
     uint8 opcode = cpuBus->read(address);

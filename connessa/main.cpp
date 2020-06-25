@@ -2,14 +2,8 @@
 #include <conio.h>
 #include <windows.h>
 
-#include "common.h"
-#include "6502.h"
-#include "ppu.h"
-#include "apu.h"
-#include "cpuBus.h"
-#include "ppuBus.h"
-
-#include "cpuTrace.h"
+#include <nescore/nes.h>
+#include <nescore/cpuTrace.h>
 
 // General TODO:
 // - naive printfs and sprintfs are slow as mollasses for this kind of thing
@@ -31,7 +25,7 @@ static CPUBus cpuBus = {};
 static Cartridge cartridge = {};
 
 static bool renderMode = false;
-static bool traceEnabled = false;
+static bool traceEnabled = true;
 static bool asciiMode = false;
 static bool singleStepMode = false;
 
@@ -254,112 +248,19 @@ void readValue()
     printf("Result: %02X   ", cpuBus.read(address));
 }
 
-static CHAR_INFO palette[0x4F] = {
-    { '#', 0 },
-    { '#', 0x10 },
-    { '#', 0x20 },
-    { '#', 0x30 },
-    { '#', 0x40 },
-    { '#', 0x50 },
-    { '#', 0x60 },
-    { '#', 0x70 },
-    { '#', 0x80 },
-    { '#', 0x90 },
-    { '#', 0xA0 },
-    { '#', 0xB0 },
-    { '#', 0xD0 },
-    { '#', 0xE0 },
-    { '#', 0xF0 },
-    { ' ', 0 },
-    { ' ', 0x10 },
-    { ' ', 0x20 },
-    { ' ', 0x30 },
-    { ' ', 0x40 },
-    { ' ', 0x50 },
-    { ' ', 0x60 },
-    { ' ', 0x70 },
-    { ' ', 0x80 },
-    { ' ', 0x90 },
-    { ' ', 0xA0 },
-    { ' ', 0xB0 },
-    { ' ', 0xD0 },
-    { ' ', 0xE0 },
-    { ' ', 0xF0 },
-    { '.', FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED },
-    { '.', FOREGROUND_GREEN | FOREGROUND_RED },
-    { '.', FOREGROUND_RED },
-    { '.', FOREGROUND_BLUE | FOREGROUND_RED },
-    { '.', FOREGROUND_BLUE },
-    { '.', FOREGROUND_GREEN },
-    { '.', BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED },
-    { '.', BACKGROUND_GREEN | BACKGROUND_RED },
-    { '.', BACKGROUND_RED },
-    { '.', BACKGROUND_BLUE | BACKGROUND_RED },
-    { '.', BACKGROUND_BLUE },
-    { '.', BACKGROUND_GREEN },
-    { '.', BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED | BACKGROUND_RED },
-    { '.', BACKGROUND_RED | FOREGROUND_BLUE },
-    { '.', BACKGROUND_BLUE | BACKGROUND_RED },
-    { '.', BACKGROUND_GREEN | BACKGROUND_RED },
-    { '#', 0xBF },
-    { '#', 0x0F },
-    { '#', 0x1F },
-    { '#', 0x2F },
-    { '#', 0x3F },
-    { '#', 0x4F },
-    { '#', 0x5F },
-    { '#', 0x6F },
-    { '#', 0x7F },
-    { '#', 0x8F },
-    { '#', 0x9F },
-    { '#', 0xAF },
-    { '#', 0xDF },
-    { '#', 0xEF },
-    { '#', 0xFF },
-};
-
-static CHAR_INFO pixels[NES_SCREEN_WIDTH * NES_SCREEN_HEIGHT];
-
-void drawRect(int paletteIndex, int x, int y, int width, int height)
-{
-    for (int py = y; py < NES_SCREEN_HEIGHT && py < y + height; ++py)
-    {
-        for (int px = x; px < NES_SCREEN_WIDTH && px < x + width; ++px)
-        {
-            pixels[NES_SCREEN_WIDTH * py + px] = palette[paletteIndex];
-        }
-    }
-}
-
 void gameView()
 {
-    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    SMALL_RECT location = {0, 0, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT };
-    // TODO: This function eats 24ms of our 33ms frame time leaving 9 to simulate the frame
-    // This should be doable with an efficient implementation, but thats a lot of pressure to put on
-    // debugging something that doesn't even work yet while I'm still learning. So abandoning
-    // the console version for now. :(
-    WriteConsoleOutputA(console, pixels, { NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT }, { 0, 0 }, &location);
-}
-
-void flushScreenBuffer()
-{
-    for (int i = 0; i < NES_SCREEN_WIDTH * NES_SCREEN_HEIGHT; ++i)
-    {
-        pixels[i] = palette[ppu.screenBuffer[i]];
-    }
+    
 }
 
 void activateRenderMode()
 {
-    setConsoleSize(NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, 4, 4);
-    SetConsoleTitleA("ConNessa: Render Mode");
+    SetConsoleTitleA("ConNessa: Render Debug");
     renderMode = true;
 }
 
 void activateDebugMode()
 {
-    setConsoleSize(110, 40, 8, 16);
     SetConsoleTitleA("ConNessa: Debug Mode");
     renderMode = false;
 }
@@ -429,7 +330,7 @@ void update(real32 secondsPerFrame)
 
     if (ppu.getVBlankActive() && !wasVBlankActive)
     {
-        flushScreenBuffer();
+        // flushScreenBuffer();
     }
 
     wasVBlankActive = ppu.getVBlankActive();
@@ -444,18 +345,17 @@ int main(int argc, char *argv[])
     UINT desiredSchedulerMS = 1;
     bool useSleep = timeBeginPeriod(desiredSchedulerMS) == TIMERR_NOERROR;
 
-    activateRenderMode();
+    activateDebugMode();
     hideCursor();
+    setConsoleSize(110, 40, 8, 16);
 
     cpu.connect(&cpuBus);
     ppu.connect(&ppuBus);
     cpuBus.connect(&ppu, &apu, &cartridge);
     cpuBus.addWriteCallback(renderMemCell);
     ppuBus.connect(&ppu, &cartridge);
-    cartridge.load("data/nestest.nes");
+    cartridge.load("data/all_instrs.nes");
     cpu.reset();
-
-    renderMode = true;
 
     real32 framesPerSecond = 30.0f;
     real32 secondsPerFrame = 1.0f / framesPerSecond;
